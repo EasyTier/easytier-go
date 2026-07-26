@@ -1,0 +1,259 @@
+package engine
+
+import (
+	"context"
+	"crypto/rand"
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/EasyTier/easytier-go-host/internal/artifact"
+	"github.com/EasyTier/easytier-go-host/internal/coreabi"
+	"github.com/EasyTier/easytier-go-host/internal/hostabi"
+	"github.com/EasyTier/easytier-go-host/internal/reactor"
+	"github.com/EasyTier/easytier-go-host/platform"
+	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
+)
+
+const defaultPacketQueueCapacity = 16
+const maximumPacketIngressBatch = 32
+
+type Options struct {
+	Services            platform.Services
+	PacketQueueCapacity int
+}
+
+type Host struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	runtime wazero.Runtime
+	module  api.Module
+	reactor *reactor.Reactor
+	options Options
+
+	guestMu sync.Mutex
+
+	mu        sync.Mutex
+	closed    bool
+	instances map[*Instance]struct{}
+	closeOnce sync.Once
+	closeDone chan struct{}
+	closeErr  error
+}
+
+func NewHost(ctx context.Context, options Options) (_ *Host, err error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("create EasyTier engine host with nil context")
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	if options.PacketQueueCapacity == 0 {
+		options.PacketQueueCapacity = defaultPacketQueueCapacity
+	}
+	if options.PacketQueueCapacity < 0 {
+		return nil, fmt.Errorf("packet queue capacity must be positive")
+	}
+
+	lifetime, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	runtime := wazero.NewRuntime(lifetime)
+	var module api.Module
+	var hostReactor *reactor.Reactor
+	defer func() {
+		if err == nil {
+			return
+		}
+		cancel()
+		if module != nil {
+			_ = module.Close(context.WithoutCancel(ctx))
+		}
+		if hostReactor != nil {
+			hostReactor.Close()
+		}
+		_ = runtime.Close(context.WithoutCancel(ctx))
+	}()
+
+	if _, err = wasi_snapshot_preview1.Instantiate(ctx, runtime); err != nil {
+		return nil, fmt.Errorf("instantiate WASI preview1: %w", err)
+	}
+	hostReactor = reactor.New(lifetime, reactor.Options{Services: options.Services})
+	adapter, err := hostabi.New(hostReactor)
+	if err != nil {
+		return nil, err
+	}
+	if err = adapter.Instantiate(ctx, runtime); err != nil {
+		return nil, fmt.Errorf("instantiate EasyTier host ABI: %w", err)
+	}
+	compiled, err := runtime.CompileModule(ctx, artifact.Core())
+	if err != nil {
+		return nil, fmt.Errorf("compile embedded EasyTier core: %w", err)
+	}
+	defer compiled.Close(context.WithoutCancel(ctx))
+	module, err = runtime.InstantiateModule(ctx, compiled, newModuleConfig())
+	if err != nil {
+		return nil, fmt.Errorf("instantiate embedded EasyTier core: %w", err)
+	}
+
+	host := &Host{
+		ctx:       lifetime,
+		cancel:    cancel,
+		runtime:   runtime,
+		module:    module,
+		reactor:   hostReactor,
+		options:   options,
+		instances: make(map[*Instance]struct{}),
+		closeDone: make(chan struct{}),
+	}
+	go host.broadcastCompletions()
+	return host, nil
+}
+
+func newModuleConfig() wazero.ModuleConfig {
+	return wazero.NewModuleConfig().
+		WithRandSource(rand.Reader).
+		WithSysWalltime().
+		WithSysNanotime().
+		WithSysNanosleep()
+}
+
+func (host *Host) CreateInstance(
+	ctx context.Context,
+	configTOML string,
+) (*Instance, error) {
+	if host == nil {
+		return nil, fmt.Errorf("create instance with nil EasyTier engine host")
+	}
+	if ctx == nil {
+		return nil, fmt.Errorf("create EasyTier instance with nil context")
+	}
+	envelope, err := encodeCreateEnvelope(configTOML, host.options.Services.Snapshot)
+	if err != nil {
+		return nil, err
+	}
+
+	host.mu.Lock()
+	defer host.mu.Unlock()
+	if host.closed {
+		return nil, fmt.Errorf("create instance with closed EasyTier engine host")
+	}
+	packetSink, err := host.reactor.RegisterPacketSink(host.options.PacketQueueCapacity)
+	if err != nil {
+		return nil, fmt.Errorf("register EasyTier packet sink: %w", err)
+	}
+	host.guestMu.Lock()
+	core, err := coreabi.New(host.module)
+	if err == nil {
+		err = core.Create(ctx, envelope, packetSink)
+	}
+	host.guestMu.Unlock()
+	if err != nil {
+		host.reactor.UnregisterPacketSink(packetSink)
+		return nil, err
+	}
+
+	lifetime, cancel := context.WithCancel(host.ctx)
+	instance := &Instance{
+		host:              host,
+		ctx:               lifetime,
+		cancel:            cancel,
+		core:              core,
+		dataPlane:         core,
+		reactor:           host.reactor,
+		packetSink:        packetSink,
+		commands:          make(chan command, maximumPacketIngressBatch),
+		dataPlaneCommands: make(chan dataPlaneCommand),
+		pendingOperations: make(
+			map[coreabi.OperationID]*pendingOperation,
+		),
+		completions:    make(chan struct{}, 1),
+		closeRequested: make(chan struct{}),
+		done:           make(chan struct{}),
+		running:        make(chan struct{}),
+		stopped:        make(chan struct{}),
+	}
+	instance.state.Store(int32(coreabi.StateCreated))
+	host.instances[instance] = struct{}{}
+	go instance.run()
+	return instance, nil
+}
+
+func (host *Host) Close(ctx context.Context) error {
+	if host == nil {
+		return nil
+	}
+	if ctx == nil {
+		return fmt.Errorf("close EasyTier engine host with nil context")
+	}
+	host.closeOnce.Do(func() {
+		host.mu.Lock()
+		host.closed = true
+		instances := make([]*Instance, 0, len(host.instances))
+		for instance := range host.instances {
+			instances = append(instances, instance)
+		}
+		host.mu.Unlock()
+		go host.shutdown(instances)
+	})
+	select {
+	case <-host.closeDone:
+		host.mu.Lock()
+		err := host.closeErr
+		host.mu.Unlock()
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (host *Host) shutdown(instances []*Instance) {
+	var closeErrors []error
+	for _, instance := range instances {
+		if err := instance.Close(host.ctx); err != nil {
+			closeErrors = append(closeErrors, err)
+		}
+	}
+
+	host.cancel()
+	host.reactor.Close()
+	cleanupContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	moduleErr := host.module.Close(cleanupContext)
+	runtimeErr := host.runtime.Close(cleanupContext)
+
+	host.mu.Lock()
+	host.closeErr = errors.Join(
+		append(closeErrors, moduleErr, runtimeErr)...,
+	)
+	host.mu.Unlock()
+	close(host.closeDone)
+}
+
+func (host *Host) broadcastCompletions() {
+	for {
+		select {
+		case <-host.reactor.Completions():
+			host.mu.Lock()
+			for instance := range host.instances {
+				select {
+				case instance.completions <- struct{}{}:
+				default:
+				}
+			}
+			host.mu.Unlock()
+		case <-host.ctx.Done():
+			return
+		}
+	}
+}
+
+func (host *Host) removeInstance(instance *Instance) {
+	host.mu.Lock()
+	delete(host.instances, instance)
+	host.mu.Unlock()
+}
