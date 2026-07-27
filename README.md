@@ -128,6 +128,54 @@ For example, run `iperf3 -c 127.0.0.1 -p 5202` for TCP or add
 its control connection. UDP forwarding uses one overlay connection per rule;
 replies are sent to the local client that most recently sent a packet.
 
+## Performance compared with native EasyTier
+
+In this A/B benchmark two nodes on one i7-14700KF host (Linux 6.11) each run
+in their own network namespace, joined by a veth pair. Node A always runs a
+native `easytier-core` build of EasyTier master (`2.6.4-6a186167`) with
+overlay address `10.144.0.1/24`; node B runs either the same native binary or
+this Go host (commit `78889d12`, embedded EasyTier `af640d49`) with
+`10.144.0.2/24`. A master build is used as the native baseline because the
+2.6.4 release predates several native data-plane throughput fixes (EasyTier
+#2451, #2452). The underlay tunnel between the nodes is either `tcp://` or
+`udp://`. Encryption is enabled and the overlay MTU is 1360 on both ends.
+Node A and the iperf3 server are pinned to CPUs `0,2,4,6`, node B to
+`8,10,12,14`. Each iperf3 run lasts 15 seconds and excludes the first
+3 seconds. Forward means node B sends to node A; reverse uses `iperf3 -R`.
+Measured 2026-07-28.
+
+TCP, one stream:
+
+| Scenario | Direction | `tcp://` native | `tcp://` Go host | `udp://` native | `udp://` Go host |
+| --- | --- | ---: | ---: | ---: | ---: |
+| TUN | forward | 6.06 Gbit/s | 2.12 Gbit/s | 3.71 Gbit/s | 1.57 Gbit/s |
+| TUN | reverse | 6.03 Gbit/s | 2.57 Gbit/s | 3.69 Gbit/s | 1.48 Gbit/s |
+| Port forward | forward | 1.25 Gbit/s | 1.29 Gbit/s | 1.19 Gbit/s | 1.20 Gbit/s |
+| Port forward | reverse | 6.49 Gbit/s | 1.95 Gbit/s | 4.26 Gbit/s | 1.43 Gbit/s |
+
+UDP port forward, 1 Gbit/s offered with 1200-byte datagrams
+(received / lost):
+
+| Direction | `tcp://` native | `tcp://` Go host | `udp://` native | `udp://` Go host |
+| --- | ---: | ---: | ---: | ---: |
+| forward | 996 Mbit/s / 0.3% | 546 Mbit/s / 45% | 996 Mbit/s / 0.3% | 699 Mbit/s / 30% |
+| reverse | 950 Mbit/s / 5.0% | 490 Mbit/s / 51% | 983 Mbit/s / 1.7% | 350 Mbit/s / 65% |
+
+Reading the numbers:
+
+- On TUN the Go host reaches roughly 35-45% of native single-stream
+  throughput. Both sides run the same EasyTier core logic, so the gap is the
+  WASM/Go data-plane boundary rather than routing or cryptography.
+- Port-forward TCP forward is a tie at about 1.2 Gbit/s: both sides are
+  bounded by the virtual TCP send path inside the shared EasyTier core, not
+  by the host.
+- Port-forward TCP reverse favors native by about 3x (4.3-6.5 versus
+  1.4-2.0 Gbit/s); the Go host's per-operation receive path is the limit.
+- Native sustains the offered 1 Gbit/s UDP nearly loss-free in both
+  directions, while the Go host saturates at 350-700 Mbit/s with significant
+  loss, consistent with the one-operation-per-datagram data-plane ABI
+  documented in `PERFORMANCE.md`.
+
 ## Platform capabilities
 
 The default platform implementation uses Go's standard `net` and
