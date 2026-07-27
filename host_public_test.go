@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"strings"
 	"sync"
 	"testing"
@@ -26,7 +27,7 @@ func TestPublicLifecycleDoesNotExposeWazero(t *testing.T) {
 	defer host.Close(ctx)
 	instance, err := host.CreateInstance(
 		ctx,
-		instanceConfig(1, "10.144.0.1", 0, false, false),
+		instanceConfig(t, 1, "10.144.0.1", 0, false, false),
 	)
 	if err != nil {
 		t.Fatalf("create instance: %v", err)
@@ -65,7 +66,7 @@ func TestPublicFacadeConnectsTwoCoresAndExchangesPacket(t *testing.T) {
 	defer host.Close(ctx)
 	server, err := host.CreateInstance(
 		ctx,
-		instanceConfig(1, "10.144.0.1", 0, false, true),
+		instanceConfig(t, 1, "10.144.0.1", 0, false, true),
 	)
 	if err != nil {
 		t.Fatalf("create server: %v", err)
@@ -77,7 +78,7 @@ func TestPublicFacadeConnectsTwoCoresAndExchangesPacket(t *testing.T) {
 	port := sockets.listenerPort(t)
 	client, err := host.CreateInstance(
 		ctx,
-		instanceConfig(2, "10.144.0.2", port, true, false),
+		instanceConfig(t, 2, "10.144.0.2", port, true, false),
 	)
 	if err != nil {
 		t.Fatalf("create client: %v", err)
@@ -135,7 +136,7 @@ func TestPublicEventStreamClosesWithInstance(t *testing.T) {
 	defer host.Close(ctx)
 	instance, err := host.CreateInstance(
 		ctx,
-		instanceConfig(3, "10.144.0.3", 0, false, false),
+		instanceConfig(t, 3, "10.144.0.3", 0, false, false),
 	)
 	if err != nil {
 		t.Fatalf("create instance: %v", err)
@@ -164,31 +165,60 @@ func TestEmbeddedCoreInfoIsPublicWithoutArtifactBytes(t *testing.T) {
 	}
 }
 
+func TestPublicCreateInstanceAcceptsSecureModeConfig(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	host, err := corehost.New(ctx, corehost.Options{})
+	if err != nil {
+		t.Fatalf("create host: %v", err)
+	}
+	defer host.Close(ctx)
+
+	privateKey := make([]byte, 32)
+	for index := range privateKey {
+		privateKey[index] = byte(index + 1)
+	}
+	config, err := corehost.NewInstanceConfigBuilder("secure-test").
+		NetworkSecret("test").
+		P2P(corehost.P2PPolicy{Disable: true}).
+		Encryption(false).
+		SecureModeWithPrivateKey(privateKey).
+		Build()
+	if err != nil {
+		t.Fatalf("build secure-mode config: %v", err)
+	}
+	instance, err := host.CreateInstance(ctx, config)
+	if err != nil {
+		t.Fatalf("create secure-mode instance: %v", err)
+	}
+	defer instance.Close(ctx)
+}
+
 func instanceConfig(
+	t *testing.T,
 	id int,
 	ipv4 string,
 	port int,
 	connect bool,
 	listen bool,
-) string {
-	instanceID := fmt.Sprintf("00000000-0000-0000-0000-%012d", id)
-	listener := ""
-	peer := ""
-	url := fmt.Sprintf("tcp://127.0.0.1:%d", port)
+) corehost.InstanceConfig {
+	t.Helper()
+	builder := corehost.NewInstanceConfigBuilder("default").
+		NetworkSecret("test").
+		Hostname(fmt.Sprintf("go-host-%d", id)).
+		IPv4(netip.MustParsePrefix(ipv4 + "/24")).
+		P2P(corehost.P2PPolicy{Disable: true}).
+		Encryption(false)
 	if connect {
-		peer = fmt.Sprintf("\n[[peer]]\nuri = %q\n", url)
+		builder.AddPeers(fmt.Sprintf("tcp://127.0.0.1:%d", port))
 	} else if listen {
-		listener = fmt.Sprintf("listeners = [%q]\n", url)
+		builder.AddListeners(fmt.Sprintf("tcp://127.0.0.1:%d", port))
 	}
-	return fmt.Sprintf(
-		"instance_id = %q\ninstance_name = %q\nhostname = %q\nipv4 = %q\n%s%s\n[network_identity]\nnetwork_name = \"default\"\nnetwork_secret = \"test\"\n\n[flags]\ndisable_p2p = true\nenable_encryption = false\nbind_device = false\n",
-		instanceID,
-		fmt.Sprintf("go-host-%d", id),
-		fmt.Sprintf("go-host-%d", id),
-		ipv4+"/24",
-		listener,
-		peer,
-	)
+	config, err := builder.Build()
+	if err != nil {
+		t.Fatalf("build instance config: %v", err)
+	}
+	return config
 }
 
 func waitForEvent(

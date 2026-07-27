@@ -6,14 +6,18 @@ embedded WASM; this repository adapts Go host capabilities to the ABI exported
 and imported by that artifact.
 
 ```go
-import corehost "github.com/EasyTier/easytier-go-host"
+import (
+    "net/netip"
+
+    corehost "github.com/EasyTier/easytier-go-host"
+)
 ```
 
 ## Public API
 
 The public package owns wazero, standard WASI, the EasyTier host ABI, guest
 driving, completion notification, and resource shutdown. Applications create a
-host and instance from normal EasyTier TOML, then use standard Go network
+host, build a typed instance configuration, and then use standard Go network
 interfaces:
 
 ```go
@@ -23,7 +27,16 @@ if err != nil {
 }
 defer host.Close(ctx)
 
-instance, err := host.CreateInstance(ctx, easyTierTOML)
+config, err := corehost.NewInstanceConfigBuilder("office").
+    NetworkSecret("secret").
+    IPv4(netip.MustParsePrefix("10.144.0.10/24")).
+    AddPeers("tcp://198.51.100.10:11010").
+    Build()
+if err != nil {
+    return err
+}
+
+instance, err := host.CreateInstance(ctx, config)
 if err != nil {
     return err
 }
@@ -42,6 +55,19 @@ connection, err := instance.Dial(ctx, "tcp4", "10.144.0.2:8080")
 packets, err := instance.ListenPacket("udp4", ":5353")
 ```
 
+`InstanceConfigBuilder` exposes the instance settings supported by this host:
+network identity, hostname, virtual IPv4 address, peers and listeners, IPv4 and
+IPv6 STUN servers, P2P policy, hole-punching methods, encryption, and secure
+mode. Omitted optional settings retain the embedded core's defaults. Calling
+`STUNServers()` or `STUNServersV6()` with no arguments explicitly selects an
+empty list.
+
+Secure mode can generate an X25519 key with `SecureMode()` or use a caller
+supplied raw 32-byte private key with `SecureModeWithPrivateKey(key)`. The
+public key is always derived by the builder. Secure mode currently requires a
+non-empty shared network secret; credential-based networks are a separate
+future configuration path.
+
 `Dial` returns `net.Conn`, `Listen` returns `net.Listener`, and `ListenPacket`
 returns `net.PacketConn`. ABI v2 currently supports `tcp`, `tcp4`, `udp`, and
 `udp4`; destinations must be IPv4 literals and listeners bind all overlay IPv4
@@ -57,9 +83,10 @@ returns, calls `easytier_instance_notify_completions` before driving a host
 completion, and drains bounded data-plane completion batches after each guest
 turn.
 
-The host internally wraps the TOML in EasyTier's version 14 create envelope and
-adds the configured environment snapshot. Schema versions and JSON envelopes
-are not application-facing APIs.
+The host serializes the typed configuration to TOML internally, wraps it in
+EasyTier's version 14 create envelope, and adds the configured environment
+snapshot. TOML, schema versions, and JSON envelopes are not
+application-facing APIs.
 
 ## Cross-platform TUN example
 

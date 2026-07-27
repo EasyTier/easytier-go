@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -63,10 +62,15 @@ func run(ctx context.Context, options options) error {
 	}
 	defer host.Close(context.Background())
 
-	instance, err := host.CreateInstance(
-		ctx,
-		buildConfig(options),
-	)
+	config, err := corehost.NewInstanceConfigBuilder(options.networkName).
+		NetworkSecret(options.networkSecret).
+		IPv4(prefix).
+		AddPeers([]string(options.peers)...).
+		Build()
+	if err != nil {
+		return fmt.Errorf("build EasyTier instance config: %w", err)
+	}
+	instance, err := host.CreateInstance(ctx, config)
 	if err != nil {
 		return fmt.Errorf("create EasyTier instance: %w", err)
 	}
@@ -116,23 +120,6 @@ func logEvents(ctx context.Context, events <-chan corehost.Event) {
 			return
 		}
 	}
-}
-
-func buildConfig(options options) string {
-	var config strings.Builder
-	fmt.Fprintf(&config, "ipv4 = %s\n", tomlString(options.ipv4))
-	fmt.Fprintf(&config, "\n[network_identity]\n")
-	fmt.Fprintf(&config, "network_name = %s\n", tomlString(options.networkName))
-	fmt.Fprintf(&config, "network_secret = %s\n", tomlString(options.networkSecret))
-	for _, peer := range options.peers {
-		fmt.Fprintf(&config, "\n[[peer]]\nuri = %s\n", tomlString(peer))
-	}
-	return config.String()
-}
-
-func tomlString(value string) string {
-	encoded, _ := json.Marshal(value)
-	return string(encoded)
 }
 
 // Native TUN adapter

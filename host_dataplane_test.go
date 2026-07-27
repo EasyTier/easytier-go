@@ -41,7 +41,7 @@ func startDataPlanePair(
 	}
 	server, err := host.CreateInstance(
 		ctx,
-		instanceConfig(101, "10.144.0.101", 0, false, true),
+		instanceConfig(t, 101, "10.144.0.101", 0, false, true),
 	)
 	if err != nil {
 		host.Close(ctx)
@@ -55,6 +55,7 @@ func startDataPlanePair(
 	client, err := host.CreateInstance(
 		ctx,
 		instanceConfig(
+			t,
 			102,
 			"10.144.0.102",
 			sockets.listenerPort(t),

@@ -76,35 +76,6 @@ func TestOptionsValidate(t *testing.T) {
 	}
 }
 
-func TestBuildConfig(t *testing.T) {
-	value := options{
-		peers: peerList{
-			"tcp://198.51.100.10:11010",
-			"udp://203.0.113.20:11010",
-		},
-		networkName:   `office "blue"`,
-		networkSecret: "line1\nline2",
-		ipv4:          "10.144.0.10/24",
-	}
-
-	config := buildConfig(value)
-	want := `ipv4 = "10.144.0.10/24"
-
-[network_identity]
-network_name = "office \"blue\""
-network_secret = "line1\nline2"
-
-[[peer]]
-uri = "tcp://198.51.100.10:11010"
-
-[[peer]]
-uri = "udp://203.0.113.20:11010"
-`
-	if config != want {
-		t.Fatalf("generated config:\n%s\nwant:\n%s", config, want)
-	}
-}
-
 func TestPeerListRejectsEmptyPeer(t *testing.T) {
 	var peers peerList
 	if err := peers.Set(" "); err == nil {

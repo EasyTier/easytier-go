@@ -74,12 +74,17 @@ func CoreInfo() EmbeddedCoreInfo {
 	}
 }
 
+// CreateInstance creates an EasyTier instance from a built configuration.
 func (host *Host) CreateInstance(
 	ctx context.Context,
-	configTOML string,
+	config InstanceConfig,
 ) (*Instance, error) {
 	if host == nil {
 		return nil, fmt.Errorf("create instance with nil EasyTier host")
+	}
+	configTOML, err := encodeInstanceConfig(config)
+	if err != nil {
+		return nil, err
 	}
 	runtime, err := host.engine.CreateInstance(ctx, configTOML)
 	if err != nil {
