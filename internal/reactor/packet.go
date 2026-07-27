@@ -129,13 +129,17 @@ func (reactor *Reactor) ReceivePacket(ctx context.Context, handle uint64) ([]byt
 			packet := sink.packets[0]
 			sink.packets[0] = nil
 			sink.packets = sink.packets[1:]
+			ready := false
 			for _, waiter := range reactor.packetWrites {
 				if waiter.handle == handle {
 					waiter.ready = true
+					ready = true
 				}
 			}
 			reactor.mu.Unlock()
-			reactor.signalCompletion()
+			if ready {
+				reactor.signalCompletion()
+			}
 			return packet, nil
 		}
 		available := sink.available

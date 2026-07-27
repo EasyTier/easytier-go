@@ -10,11 +10,14 @@ import (
 )
 
 const (
-	DataPlaneABIVersion = 2
+	DataPlaneABIVersion = 3
 
 	DataPlaneCapability    uint64 = 1 << 0
 	DataPlaneTCPCapability uint64 = 1 << 1
 	DataPlaneUDPCapability uint64 = 1 << 2
+
+	DeadlineRead  DeadlineDirection = 1 << 0
+	DeadlineWrite DeadlineDirection = 1 << 1
 
 	requiredDataPlaneCapabilities = DataPlaneCapability |
 		DataPlaneTCPCapability |
@@ -23,6 +26,7 @@ const (
 
 type OperationID uint64
 type ResourceID uint64
+type DeadlineDirection uint32
 
 type OperationKind uint16
 
@@ -166,14 +170,12 @@ func (core *Core) SubmitTCPRead(
 	ctx context.Context,
 	stream ResourceID,
 	maximum uint32,
-	timeoutMillis uint64,
 ) (OperationID, error) {
 	return core.submit(
 		ctx,
 		"easytier_data_plane_tcp_read_submit",
 		uint64(stream),
 		uint64(maximum),
-		timeoutMillis,
 	)
 }
 
@@ -181,7 +183,6 @@ func (core *Core) SubmitTCPWrite(
 	ctx context.Context,
 	stream ResourceID,
 	data []byte,
-	timeoutMillis uint64,
 ) (operation OperationID, err error) {
 	if len(data) > maxDataPlaneTransferBytes {
 		return 0, fmt.Errorf(
@@ -203,7 +204,6 @@ func (core *Core) SubmitTCPWrite(
 		uint64(stream),
 		uint64(pointer),
 		uint64(len(data)),
-		timeoutMillis,
 	)
 }
 
@@ -224,14 +224,12 @@ func (core *Core) SubmitUDPReceive(
 	ctx context.Context,
 	socket ResourceID,
 	maximum uint32,
-	timeoutMillis uint64,
 ) (OperationID, error) {
 	return core.submit(
 		ctx,
 		"easytier_data_plane_udp_receive_submit",
 		uint64(socket),
 		uint64(maximum),
-		timeoutMillis,
 	)
 }
 
@@ -240,7 +238,6 @@ func (core *Core) SubmitUDPSend(
 	socket ResourceID,
 	peer netip.AddrPort,
 	data []byte,
-	timeoutMillis uint64,
 ) (operation OperationID, err error) {
 	if len(data) > maxDataPlaneTransferBytes {
 		return 0, fmt.Errorf(
@@ -253,17 +250,22 @@ func (core *Core) SubmitUDPSend(
 	if err != nil {
 		return 0, err
 	}
-	addressPointer, err := core.writeInput(ctx, address[:])
+	addressPointer, err := core.ensureDataPlaneAddress(ctx)
 	if err != nil {
 		return 0, err
 	}
-	defer core.cleanupBuffer(ctx, addressPointer, &err)
-	dataPointer, err := core.writeInput(ctx, data)
-	if err != nil {
-		return 0, err
+	if !core.module.Memory().Write(addressPointer, address[:]) {
+		return 0, fmt.Errorf("write UDP peer address to guest memory")
 	}
-	if dataPointer != 0 {
-		defer core.cleanupBuffer(ctx, dataPointer, &err)
+	var dataPointer uint32
+	if len(data) != 0 {
+		dataPointer, err = core.ensureDataPlaneInput(ctx, uint32(len(data)))
+		if err != nil {
+			return 0, err
+		}
+		if !core.module.Memory().Write(dataPointer, data) {
+			return 0, fmt.Errorf("write UDP payload to guest memory")
+		}
 	}
 	return core.submit(
 		ctx,
@@ -272,8 +274,34 @@ func (core *Core) SubmitUDPSend(
 		uint64(addressPointer),
 		uint64(dataPointer),
 		uint64(len(data)),
+	)
+}
+
+func (core *Core) SetResourceDeadline(
+	ctx context.Context,
+	resource ResourceID,
+	direction DeadlineDirection,
+	timeoutMillis uint64,
+) error {
+	result, err := core.callOne(
+		ctx,
+		"easytier_data_plane_resource_deadline_set",
+		core.handle,
+		uint64(resource),
+		uint64(direction),
 		timeoutMillis,
 	)
+	if err != nil {
+		return err
+	}
+	if status := int32(result); status != 0 {
+		return core.dataPlaneStatusError(
+			ctx,
+			"set data plane resource deadline",
+			status,
+		)
+	}
+	return nil
 }
 
 func (core *Core) submitWithInput(
@@ -295,11 +323,10 @@ func (core *Core) submit(
 	name string,
 	params ...uint64,
 ) (operation OperationID, err error) {
-	pointer, err := core.allocate(ctx, operationIDLength)
+	pointer, err := core.ensureDataPlaneOutput(ctx, operationIDLength)
 	if err != nil {
 		return 0, err
 	}
-	defer core.cleanupBuffer(ctx, pointer, &err)
 	callParams := make([]uint64, 0, len(params)+2)
 	callParams = append(callParams, core.handle)
 	callParams = append(callParams, params...)
@@ -333,14 +360,14 @@ func (core *Core) DrainCompletions(
 		return nil, fmt.Errorf("completion batch %d exceeds guest address space", maximum)
 	}
 	length := maximum * completionLength
-	pointer, err := core.allocate(ctx, length)
+	pointer, err := core.ensureDataPlaneOutput(ctx, length)
 	if err != nil {
 		return nil, err
 	}
-	defer core.cleanupBuffer(ctx, pointer, &err)
-	result, err := core.callOne(
+	result, err := core.callCached(
 		ctx,
 		"easytier_data_plane_completion_drain",
+		&core.completionFunction,
 		core.handle,
 		uint64(pointer),
 		uint64(maximum),
@@ -448,11 +475,10 @@ func (core *Core) takeFixedResult(
 	name string,
 	length uint32,
 ) (wire []byte, err error) {
-	pointer, err := core.allocate(ctx, length)
+	pointer, err := core.ensureDataPlaneOutput(ctx, length)
 	if err != nil {
 		return nil, err
 	}
-	defer core.cleanupBuffer(ctx, pointer, &err)
 	result, err := core.callOne(
 		ctx,
 		name,
@@ -527,30 +553,25 @@ func (core *Core) takeVariableResult(
 	name string,
 	metadataLength uint32,
 ) (data, metadata []byte, err error) {
-	size, err := core.resultSize(ctx, completion.Operation)
+	capacity := uint32(maxDataPlaneTransferBytes)
+	if completion.Kind == OperationUDPReceive {
+		capacity = math.MaxUint16
+	}
+	dataPointer, err := core.ensureDataPlaneInput(ctx, capacity)
 	if err != nil {
 		return nil, nil, err
 	}
-	var dataPointer uint32
-	if size != 0 {
-		dataPointer, err = core.allocate(ctx, size)
-		if err != nil {
-			return nil, nil, err
-		}
-		defer core.cleanupBuffer(ctx, dataPointer, &err)
-	}
-	metadataPointer, err := core.allocate(ctx, metadataLength)
+	metadataPointer, err := core.ensureDataPlaneOutput(ctx, metadataLength)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer core.cleanupBuffer(ctx, metadataPointer, &err)
 	result, err := core.callOne(
 		ctx,
 		name,
 		core.handle,
 		uint64(completion.Operation),
 		uint64(dataPointer),
-		uint64(size),
+		uint64(capacity),
 		uint64(metadataPointer),
 	)
 	if err != nil {
@@ -560,12 +581,12 @@ func (core *Core) takeVariableResult(
 	if length < 0 {
 		return nil, nil, core.dataPlaneStatusError(ctx, name, length)
 	}
-	if uint32(length) > size {
+	if uint32(length) > capacity {
 		return nil, nil, fmt.Errorf(
 			"%s returned length %d into capacity %d",
 			name,
 			length,
-			size,
+			capacity,
 		)
 	}
 	if length != 0 {
@@ -601,30 +622,6 @@ func (core *Core) takeLengthResult(
 		return 0, core.dataPlaneStatusError(ctx, name, length)
 	}
 	return int(length), nil
-}
-
-func (core *Core) resultSize(
-	ctx context.Context,
-	operation OperationID,
-) (uint32, error) {
-	result, err := core.callOne(
-		ctx,
-		"easytier_data_plane_result_size",
-		core.handle,
-		uint64(operation),
-	)
-	if err != nil {
-		return 0, err
-	}
-	size := int32(result)
-	if size < 0 {
-		return 0, core.dataPlaneStatusError(
-			ctx,
-			"query data plane result size",
-			size,
-		)
-	}
-	return uint32(size), nil
 }
 
 func (core *Core) CancelOperation(

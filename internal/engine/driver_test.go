@@ -2,9 +2,11 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"math"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/EasyTier/easytier-go-host/internal/coreabi"
 )
@@ -84,5 +86,79 @@ func TestPacketIngressBatchDrivesOnce(t *testing.T) {
 	want := []string{"send", "send", "send", "drive", "deadline"}
 	if !reflect.DeepEqual(core.calls, want) {
 		t.Fatalf("packet batch call order = %v, want %v", core.calls, want)
+	}
+}
+
+func TestSendPacketBorrowsBufferUntilGuestConsumesIt(t *testing.T) {
+	instance := &Instance{
+		commands:       make(chan command, 1),
+		closeRequested: make(chan struct{}),
+		done:           make(chan struct{}),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	packet := []byte{1, 2, 3}
+	result := make(chan error, 1)
+	go func() {
+		result <- instance.SendPacket(ctx, packet)
+	}()
+
+	var request command
+	select {
+	case request = <-instance.commands:
+	case <-time.After(time.Second):
+		t.Fatal("SendPacket did not enqueue")
+	}
+	if &request.packet[0] != &packet[0] {
+		t.Fatal("SendPacket copied the packet before enqueue")
+	}
+
+	cancel()
+	select {
+	case err := <-result:
+		t.Fatalf("SendPacket returned before guest consumption: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	request.response <- nil
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("SendPacket after guest consumption: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("SendPacket did not return after guest consumption")
+	}
+}
+
+func TestSendPacketBackpressureRemainsCancelableBeforeEnqueue(t *testing.T) {
+	instance := &Instance{
+		commands:       make(chan command, 1),
+		closeRequested: make(chan struct{}),
+		done:           make(chan struct{}),
+	}
+	instance.commands <- command{kind: commandStart}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		result <- instance.SendPacket(ctx, []byte{1})
+	}()
+
+	select {
+	case err := <-result:
+		t.Fatalf("SendPacket bypassed full command queue: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("SendPacket on full queue returned %v, want context cancellation", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("SendPacket on full queue ignored context cancellation")
+	}
+	if got := len(instance.commands); got != 1 {
+		t.Fatalf("queued commands = %d, want the original command only", got)
 	}
 }

@@ -6,6 +6,11 @@ import (
 	"sync"
 )
 
+const (
+	udpReceiveQueueCapacity = 64
+	udpSendQueueCapacity    = 64
+)
+
 type Datagram struct {
 	Data []byte
 	Peer *net.UDPAddr
@@ -40,7 +45,7 @@ type udpWriteWaiter struct {
 func newDatagramState(connection net.PacketConn) *datagramState {
 	return &datagramState{
 		connection: connection,
-		sendQueue:  make(chan udpSend, 1),
+		sendQueue:  make(chan udpSend, udpSendQueueCapacity),
 	}
 }
 
@@ -64,13 +69,17 @@ func (reactor *Reactor) runUDPSends(handle uint64, state *datagramState) {
 
 	for request := range state.sendQueue {
 		reactor.mu.Lock()
+		ready := false
 		for _, waiter := range reactor.udpWrites {
 			if waiter.handle == handle {
 				waiter.ready = true
+				ready = true
 			}
 		}
 		reactor.mu.Unlock()
-		reactor.signalCompletion()
+		if ready {
+			reactor.signalCompletion()
+		}
 
 		n, err := state.connection.WriteTo(request.data, request.peer)
 		if err == nil && n != len(request.data) {
@@ -78,16 +87,20 @@ func (reactor *Reactor) runUDPSends(handle uint64, state *datagramState) {
 		}
 		if err != nil {
 			reactor.mu.Lock()
+			ready := false
 			if reactor.datagrams[handle] == state {
 				state.sendErr = err
 				for _, waiter := range reactor.udpWrites {
 					if waiter.handle == handle {
 						waiter.ready = true
+						ready = true
 					}
 				}
 			}
 			reactor.mu.Unlock()
-			reactor.signalCompletion()
+			if ready {
+				reactor.signalCompletion()
+			}
 		}
 	}
 }
@@ -114,7 +127,9 @@ func (reactor *Reactor) StartUDPReceive(handle, operation uint64) error {
 		ready:  len(state.received) > 0 || state.receiveErr != nil,
 	}
 	reactor.udpReads[operation] = waiter
-	startWorker := !waiter.ready && !state.receiveRunning
+	startWorker := state.receiveErr == nil &&
+		len(state.received) < udpReceiveQueueCapacity &&
+		!state.receiveRunning
 	if startWorker {
 		state.receiveRunning = true
 		reactor.workers.Add(1)
@@ -136,38 +151,52 @@ func (reactor *Reactor) runUDPReceive(handle uint64, state *datagramState) {
 		state.receiveBuffer = make([]byte, 65535)
 	}
 	buffer := state.receiveBuffer
-	n, peer, err := state.connection.ReadFrom(buffer)
+	for {
+		n, peer, err := state.connection.ReadFrom(buffer)
 
-	var udpPeer *net.UDPAddr
-	if err == nil {
-		var ok bool
-		udpPeer, ok = peer.(*net.UDPAddr)
-		if !ok {
-			err = fmt.Errorf("unsupported UDP peer address %T", peer)
+		var udpPeer *net.UDPAddr
+		if err == nil {
+			var ok bool
+			udpPeer, ok = peer.(*net.UDPAddr)
+			if !ok {
+				err = fmt.Errorf("unsupported UDP peer address %T", peer)
+			}
 		}
-	}
 
-	reactor.mu.Lock()
-	if reactor.datagrams[handle] != state {
+		reactor.mu.Lock()
+		if reactor.datagrams[handle] != state {
+			reactor.mu.Unlock()
+			return
+		}
+		if err != nil {
+			state.receiveErr = err
+		} else {
+			state.received = append(state.received, Datagram{
+				Data: append([]byte(nil), buffer[:n]...),
+				Peer: cloneUDPAddr(udpPeer),
+			})
+		}
+		ready := false
+		for _, waiter := range reactor.udpReads {
+			if waiter.handle == handle {
+				waiter.ready = true
+				ready = true
+			}
+		}
+		continueReceiving := err == nil &&
+			ready &&
+			len(state.received) < udpReceiveQueueCapacity
+		if !continueReceiving {
+			state.receiveRunning = false
+		}
 		reactor.mu.Unlock()
-		return
-	}
-	state.receiveRunning = false
-	if err != nil {
-		state.receiveErr = err
-	} else {
-		state.received = append(state.received, Datagram{
-			Data: append([]byte(nil), buffer[:n]...),
-			Peer: cloneUDPAddr(udpPeer),
-		})
-	}
-	for _, waiter := range reactor.udpReads {
-		if waiter.handle == handle {
-			waiter.ready = true
+		if ready {
+			reactor.signalCompletion()
+		}
+		if !continueReceiving {
+			return
 		}
 	}
-	reactor.mu.Unlock()
-	reactor.signalCompletion()
 }
 
 func (reactor *Reactor) TakeUDPReceive(operation uint64, capacity uint32) (Datagram, error) {
@@ -193,7 +222,8 @@ func (reactor *Reactor) TakeUDPReceive(operation uint64, capacity uint32) (Datag
 		state.receiveErr = nil
 		delete(reactor.udpReads, operation)
 		reactor.releaseOperationLocked(operation, operationUDPRead)
-		startWorker := !state.receiveRunning &&
+		startWorker := len(state.received) < udpReceiveQueueCapacity &&
+			!state.receiveRunning &&
 			reactor.hasUDPReadWaiterLocked(waiter.handle)
 		if startWorker {
 			state.receiveRunning = true
@@ -211,7 +241,7 @@ func (reactor *Reactor) TakeUDPReceive(operation uint64, capacity uint32) (Datag
 	state.received = state.received[1:]
 	delete(reactor.udpReads, operation)
 	reactor.releaseOperationLocked(operation, operationUDPRead)
-	startWorker := len(state.received) == 0 &&
+	startWorker := len(state.received) < udpReceiveQueueCapacity &&
 		!state.receiveRunning &&
 		reactor.hasUDPReadWaiterLocked(waiter.handle)
 	if startWorker {

@@ -2,6 +2,7 @@ package coreabi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/tetratelabs/wazero/api"
@@ -20,9 +21,17 @@ const (
 type Core struct {
 	module               api.Module
 	functions            map[string]guestFunction
+	driveFunction        guestFunction
+	deadlineFunction     guestFunction
+	completionFunction   guestFunction
 	handle               uint64
 	packetBuffer         uint32
 	packetBufferCapacity uint32
+	dataPlaneAddress     uint32
+	dataPlaneInput       uint32
+	dataPlaneInputSize   uint32
+	dataPlaneOutput      uint32
+	dataPlaneOutputSize  uint32
 	dropped              bool
 }
 
@@ -49,6 +58,7 @@ func (core *Core) Create(
 	ctx context.Context,
 	configEnvelope []byte,
 	packetSink uint64,
+	eventSink uint64,
 ) (err error) {
 	if core.handle != 0 || core.dropped {
 		return fmt.Errorf("create EasyTier instance in used guest module")
@@ -67,6 +77,7 @@ func (core *Core) Create(
 		uint64(pointer),
 		uint64(len(configEnvelope)),
 		packetSink,
+		eventSink,
 	)
 	if err != nil {
 		return err
@@ -91,7 +102,12 @@ func (core *Core) Stop(ctx context.Context) error {
 }
 
 func (core *Core) Drive(ctx context.Context) (State, error) {
-	result, err := core.callOne(ctx, "easytier_instance_drive", core.handle)
+	result, err := core.callCached(
+		ctx,
+		"easytier_instance_drive",
+		&core.driveFunction,
+		core.handle,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -119,9 +135,10 @@ func (core *Core) State(ctx context.Context) (State, error) {
 }
 
 func (core *Core) NextDeadline(ctx context.Context) (int64, error) {
-	result, err := core.callOne(
+	result, err := core.callCached(
 		ctx,
 		"easytier_instance_next_deadline_millis",
+		&core.deadlineFunction,
 		core.handle,
 	)
 	if err != nil {
@@ -170,15 +187,51 @@ func (core *Core) Drop(ctx context.Context) error {
 	}
 	core.dropped = true
 	core.handle = 0
+	var releaseErr error
 	if core.packetBuffer != 0 {
 		err := core.free(ctx, core.packetBuffer)
 		core.packetBuffer = 0
 		core.packetBufferCapacity = 0
 		if err != nil {
-			return fmt.Errorf("release EasyTier packet buffer: %w", err)
+			releaseErr = errors.Join(
+				releaseErr,
+				fmt.Errorf("release EasyTier packet buffer: %w", err),
+			)
 		}
 	}
-	return nil
+	if core.dataPlaneInput != 0 {
+		err := core.free(ctx, core.dataPlaneInput)
+		core.dataPlaneInput = 0
+		core.dataPlaneInputSize = 0
+		if err != nil {
+			releaseErr = errors.Join(
+				releaseErr,
+				fmt.Errorf("release EasyTier data plane input buffer: %w", err),
+			)
+		}
+	}
+	if core.dataPlaneAddress != 0 {
+		err := core.free(ctx, core.dataPlaneAddress)
+		core.dataPlaneAddress = 0
+		if err != nil {
+			releaseErr = errors.Join(
+				releaseErr,
+				fmt.Errorf("release EasyTier data plane address buffer: %w", err),
+			)
+		}
+	}
+	if core.dataPlaneOutput != 0 {
+		err := core.free(ctx, core.dataPlaneOutput)
+		core.dataPlaneOutput = 0
+		core.dataPlaneOutputSize = 0
+		if err != nil {
+			releaseErr = errors.Join(
+				releaseErr,
+				fmt.Errorf("release EasyTier data plane output buffer: %w", err),
+			)
+		}
+	}
+	return releaseErr
 }
 
 func (core *Core) callStatus(ctx context.Context, name string) error {
@@ -288,6 +341,64 @@ func (core *Core) ensurePacketBuffer(
 	return pointer, nil
 }
 
+func (core *Core) ensureDataPlaneInput(
+	ctx context.Context,
+	length uint32,
+) (uint32, error) {
+	if core.dataPlaneInputSize >= length {
+		return core.dataPlaneInput, nil
+	}
+	if core.dataPlaneInput != 0 {
+		if err := core.free(ctx, core.dataPlaneInput); err != nil {
+			return 0, fmt.Errorf("grow EasyTier data plane input buffer: %w", err)
+		}
+		core.dataPlaneInput = 0
+		core.dataPlaneInputSize = 0
+	}
+	pointer, err := core.allocate(ctx, length)
+	if err != nil {
+		return 0, err
+	}
+	core.dataPlaneInput = pointer
+	core.dataPlaneInputSize = length
+	return pointer, nil
+}
+
+func (core *Core) ensureDataPlaneAddress(ctx context.Context) (uint32, error) {
+	if core.dataPlaneAddress != 0 {
+		return core.dataPlaneAddress, nil
+	}
+	pointer, err := core.allocate(ctx, socketAddressLength)
+	if err != nil {
+		return 0, err
+	}
+	core.dataPlaneAddress = pointer
+	return pointer, nil
+}
+
+func (core *Core) ensureDataPlaneOutput(
+	ctx context.Context,
+	length uint32,
+) (uint32, error) {
+	if core.dataPlaneOutputSize >= length {
+		return core.dataPlaneOutput, nil
+	}
+	if core.dataPlaneOutput != 0 {
+		if err := core.free(ctx, core.dataPlaneOutput); err != nil {
+			return 0, fmt.Errorf("grow EasyTier data plane output buffer: %w", err)
+		}
+		core.dataPlaneOutput = 0
+		core.dataPlaneOutputSize = 0
+	}
+	pointer, err := core.allocate(ctx, length)
+	if err != nil {
+		return 0, err
+	}
+	core.dataPlaneOutput = pointer
+	core.dataPlaneOutputSize = length
+	return pointer, nil
+}
+
 func (core *Core) cleanupBuffer(
 	ctx context.Context,
 	pointer uint32,
@@ -304,15 +415,46 @@ func (core *Core) callOne(
 	name string,
 	params ...uint64,
 ) (uint64, error) {
+	function, err := core.resolveFunction(name)
+	if err != nil {
+		return 0, err
+	}
+	return callGuestFunction(ctx, name, function, params)
+}
+
+func (core *Core) callCached(
+	ctx context.Context,
+	name string,
+	cached *guestFunction,
+	params ...uint64,
+) (uint64, error) {
+	if cached.call == nil {
+		function, err := core.resolveFunction(name)
+		if err != nil {
+			return 0, err
+		}
+		*cached = function
+	}
+	return callGuestFunction(ctx, name, *cached, params)
+}
+
+func (core *Core) resolveFunction(name string) (guestFunction, error) {
 	function, exists := core.functions[name]
 	if !exists {
 		call := core.module.ExportedFunction(name)
 		if call == nil {
-			return 0, fmt.Errorf("EasyTier guest does not export %s", name)
+			return guestFunction{}, fmt.Errorf(
+				"EasyTier guest does not export %s",
+				name,
+			)
 		}
 		definition := call.Definition()
 		if count := len(definition.ResultTypes()); count != 1 {
-			return 0, fmt.Errorf("%s returned %d values", name, count)
+			return guestFunction{}, fmt.Errorf(
+				"%s returned %d values",
+				name,
+				count,
+			)
 		}
 		function = guestFunction{
 			call:           call,
@@ -320,6 +462,15 @@ func (core *Core) callOne(
 		}
 		core.functions[name] = function
 	}
+	return function, nil
+}
+
+func callGuestFunction(
+	ctx context.Context,
+	name string,
+	function guestFunction,
+	params []uint64,
+) (uint64, error) {
 	if len(params) != function.parameterCount {
 		return 0, fmt.Errorf(
 			"%s expected %d params, but passed %d",

@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net"
 	"net/netip"
@@ -21,8 +20,6 @@ type packetConn struct {
 
 	readMu  sync.Mutex
 	writeMu sync.Mutex
-	read    operationDeadline
-	write   operationDeadline
 
 	closed    atomic.Bool
 	closeOnce sync.Once
@@ -45,8 +42,6 @@ func newPacketConn(
 		instance:  instance,
 		resource:  result.Resource,
 		local:     result.Local,
-		read:      newOperationDeadline(),
-		write:     newOperationDeadline(),
 		closeDone: make(chan struct{}),
 	}
 }
@@ -61,46 +56,29 @@ func (conn *packetConn) ReadFrom(buffer []byte) (int, net.Addr, error) {
 	if maximum > maxDataPlaneTransfer {
 		maximum = maxDataPlaneTransfer
 	}
-	for {
-		ctx, changed, cancel := conn.read.operationContext()
-		timeout, err := contextTimeoutMillis(ctx)
-		if err != nil {
-			cancel()
-			return 0, nil, normalizeDeadlineError(err)
-		}
-		result, err := conn.instance.performOperation(
-			ctx,
-			coreabi.OperationUDPReceive,
-			func(
-				callCtx context.Context,
-				core dataPlaneCore,
-			) (coreabi.OperationID, error) {
-				return core.SubmitUDPReceive(
-					callCtx,
-					conn.resource,
-					uint32(maximum),
-					timeout,
-				)
-			},
-		)
-		cancel()
-		if deadlineChanged(changed) && errors.Is(err, context.Canceled) &&
-			!conn.closed.Load() {
-			continue
-		}
-		if conn.closed.Load() && errors.Is(err, context.Canceled) {
-			return 0, nil, net.ErrClosed
-		}
-		if err != nil {
-			return 0, nil, normalizeDeadlineError(err)
-		}
-		n := copy(buffer, result.Data)
-		peer := net.UDPAddrFromAddrPort(result.Peer)
-		if result.Truncated {
-			return n, peer, io.ErrShortBuffer
-		}
-		return n, peer, nil
+	result, err := conn.instance.performOperation(
+		context.Background(),
+		coreabi.OperationUDPReceive,
+		func(
+			callCtx context.Context,
+			core dataPlaneCore,
+		) (coreabi.OperationID, error) {
+			return core.SubmitUDPReceive(
+				callCtx,
+				conn.resource,
+				uint32(maximum),
+			)
+		},
+	)
+	if err != nil {
+		return 0, nil, normalizeDeadlineError(err)
 	}
+	n := copy(buffer, result.Data)
+	peer := net.UDPAddrFromAddrPort(result.Peer)
+	if result.Truncated {
+		return n, peer, io.ErrShortBuffer
+	}
+	return n, peer, nil
 }
 
 func (conn *packetConn) WriteTo(buffer []byte, address net.Addr) (int, error) {
@@ -116,52 +94,33 @@ func (conn *packetConn) WriteTo(buffer []byte, address net.Addr) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	for {
-		ctx, changed, cancel := conn.write.operationContext()
-		timeout, err := contextTimeoutMillis(ctx)
-		if err != nil {
-			cancel()
-			return 0, normalizeDeadlineError(err)
-		}
-		result, err := conn.instance.performOperation(
-			ctx,
-			coreabi.OperationUDPSend,
-			func(
-				callCtx context.Context,
-				core dataPlaneCore,
-			) (coreabi.OperationID, error) {
-				return core.SubmitUDPSend(
-					callCtx,
-					conn.resource,
-					peer,
-					buffer,
-					timeout,
-				)
-			},
-		)
-		cancel()
-		if deadlineChanged(changed) && errors.Is(err, context.Canceled) &&
-			!conn.closed.Load() {
-			continue
-		}
-		if conn.closed.Load() && errors.Is(err, context.Canceled) {
-			return 0, net.ErrClosed
-		}
-		if err != nil {
-			return 0, normalizeDeadlineError(err)
-		}
-		if result.Length != len(buffer) {
-			return result.Length, io.ErrShortWrite
-		}
-		return result.Length, nil
+	result, err := conn.instance.performOperation(
+		context.Background(),
+		coreabi.OperationUDPSend,
+		func(
+			callCtx context.Context,
+			core dataPlaneCore,
+		) (coreabi.OperationID, error) {
+			return core.SubmitUDPSend(
+				callCtx,
+				conn.resource,
+				peer,
+				buffer,
+			)
+		},
+	)
+	if err != nil {
+		return 0, normalizeDeadlineError(err)
 	}
+	if result.Length != len(buffer) {
+		return result.Length, io.ErrShortWrite
+	}
+	return result.Length, nil
 }
 
 func (conn *packetConn) Close() error {
 	conn.closeOnce.Do(func() {
 		conn.closed.Store(true)
-		conn.read.set(time.Time{})
-		conn.write.set(time.Time{})
 		conn.closeErr = conn.instance.closeDataPlaneResource(conn.resource)
 		close(conn.closeDone)
 	})
@@ -177,25 +136,33 @@ func (conn *packetConn) SetDeadline(deadline time.Time) error {
 	if conn.closed.Load() {
 		return net.ErrClosed
 	}
-	conn.read.set(deadline)
-	conn.write.set(deadline)
-	return nil
+	return conn.instance.setDataPlaneResourceDeadline(
+		conn.resource,
+		coreabi.DeadlineRead|coreabi.DeadlineWrite,
+		deadline,
+	)
 }
 
 func (conn *packetConn) SetReadDeadline(deadline time.Time) error {
 	if conn.closed.Load() {
 		return net.ErrClosed
 	}
-	conn.read.set(deadline)
-	return nil
+	return conn.instance.setDataPlaneResourceDeadline(
+		conn.resource,
+		coreabi.DeadlineRead,
+		deadline,
+	)
 }
 
 func (conn *packetConn) SetWriteDeadline(deadline time.Time) error {
 	if conn.closed.Load() {
 		return net.ErrClosed
 	}
-	conn.write.set(deadline)
-	return nil
+	return conn.instance.setDataPlaneResourceDeadline(
+		conn.resource,
+		coreabi.DeadlineWrite,
+		deadline,
+	)
 }
 
 func udpAddrPort(address net.Addr) (netip.AddrPort, error) {

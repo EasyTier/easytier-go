@@ -18,7 +18,7 @@ import (
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
-const defaultPacketQueueCapacity = 16
+const defaultPacketQueueCapacity = 64
 const maximumPacketIngressBatch = 32
 
 type Options struct {
@@ -146,14 +146,30 @@ func (host *Host) CreateInstance(
 	if err != nil {
 		return nil, fmt.Errorf("register EasyTier packet sink: %w", err)
 	}
+	events := make(chan Event, instanceEventQueueCapacity)
+	eventSink, err := host.reactor.RegisterEventSink(func(kind, message string) bool {
+		select {
+		case events <- Event{Kind: kind, Message: message}:
+			return true
+		default:
+			return false
+		}
+	})
+	if err != nil {
+		host.reactor.UnregisterPacketSink(packetSink)
+		close(events)
+		return nil, fmt.Errorf("register EasyTier event sink: %w", err)
+	}
 	host.guestMu.Lock()
 	core, err := coreabi.New(host.module)
 	if err == nil {
-		err = core.Create(ctx, envelope, packetSink)
+		err = core.Create(ctx, envelope, packetSink, eventSink)
 	}
 	host.guestMu.Unlock()
 	if err != nil {
 		host.reactor.UnregisterPacketSink(packetSink)
+		host.reactor.UnregisterEventSink(eventSink)
+		close(events)
 		return nil, err
 	}
 
@@ -166,6 +182,8 @@ func (host *Host) CreateInstance(
 		dataPlane:         core,
 		reactor:           host.reactor,
 		packetSink:        packetSink,
+		eventSink:         eventSink,
+		events:            events,
 		commands:          make(chan command, maximumPacketIngressBatch),
 		dataPlaneCommands: make(chan dataPlaneCommand),
 		pendingOperations: make(

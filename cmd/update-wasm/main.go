@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	coreArtifact = "target/wasm32-wasip1/release/easytier_core.wasm"
-	coreFeatures = "proxy-smoltcp-stack,ring-crypto"
+	coreArtifact    = "wasm32-wasip1/release/easytier_core_go_host.wasm"
+	coreBuildScript = "script/build-wasi-core.sh"
 )
 
 func main() {
@@ -68,7 +68,7 @@ func update(source string) error {
 	}
 
 	coreDigest, err := copyArtifact(
-		filepath.Join(source, coreArtifact),
+		coreArtifactPath(source, os.Getenv("CARGO_TARGET_DIR")),
 		filepath.Join(repositoryRoot, "internal", "artifact", "easytier_core.wasm"),
 	)
 	if err != nil {
@@ -79,6 +79,16 @@ func update(source string) error {
 	}
 	fmt.Printf("embedded EasyTier %s (sha256 %s)\n", commit, coreDigest)
 	return nil
+}
+
+func coreArtifactPath(source, cargoTargetDirectory string) string {
+	if cargoTargetDirectory == "" {
+		cargoTargetDirectory = "target"
+	}
+	if !filepath.IsAbs(cargoTargetDirectory) {
+		cargoTargetDirectory = filepath.Join(source, cargoTargetDirectory)
+	}
+	return filepath.Join(cargoTargetDirectory, coreArtifact)
 }
 
 func requireCleanCheckout(source string) error {
@@ -103,23 +113,13 @@ func commandOutput(directory, name string, args ...string) (string, error) {
 }
 
 func buildCore(source, sourceDateEpoch string) error {
-	command := exec.Command(
-		"cargo",
-		"build",
-		"--release",
-		"--target",
-		"wasm32-wasip1",
-		"-p",
-		"easytier-core",
-		"--features",
-		coreFeatures,
-	)
+	command := exec.Command("bash", filepath.Join(source, coreBuildScript))
 	command.Dir = source
 	command.Env = reproducibleBuildEnvironment(source, sourceDateEpoch)
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 	if err := command.Run(); err != nil {
-		return fmt.Errorf("build EasyTier core: %w", err)
+		return fmt.Errorf("run EasyTier WASI build script: %w", err)
 	}
 	return nil
 }

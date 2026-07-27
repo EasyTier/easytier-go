@@ -6,6 +6,94 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
+var (
+	startUDPReceiveParameterTypes = []api.ValueType{
+		api.ValueTypeI64,
+		api.ValueTypeI64,
+		api.ValueTypeI32,
+	}
+	takeUDPReceiveParameterTypes = []api.ValueType{
+		api.ValueTypeI64,
+		api.ValueTypeI32,
+		api.ValueTypeI32,
+		api.ValueTypeI32,
+		api.ValueTypeI32,
+	}
+	tryUDPSendParameterTypes = []api.ValueType{
+		api.ValueTypeI64,
+		api.ValueTypeI32,
+		api.ValueTypeI32,
+		api.ValueTypeI32,
+		api.ValueTypeI32,
+	}
+	handleOperationParameterTypes = []api.ValueType{
+		api.ValueTypeI64,
+		api.ValueTypeI64,
+	}
+	operationParameterTypes = []api.ValueType{api.ValueTypeI64}
+)
+
+func (adapter *Adapter) startUDPReceiveFunction() api.GoModuleFunction {
+	return api.GoModuleFunc(func(ctx context.Context, module api.Module, stack []uint64) {
+		stack[0] = api.EncodeI32(adapter.startUDPReceive(
+			ctx,
+			module,
+			stack[0],
+			stack[1],
+			api.DecodeU32(stack[2]),
+		))
+	})
+}
+
+func (adapter *Adapter) takeUDPReceiveFunction() api.GoModuleFunction {
+	return api.GoModuleFunc(func(ctx context.Context, module api.Module, stack []uint64) {
+		stack[0] = api.EncodeI32(adapter.takeUDPReceive(
+			ctx,
+			module,
+			stack[0],
+			api.DecodeU32(stack[1]),
+			api.DecodeU32(stack[2]),
+			api.DecodeU32(stack[3]),
+			api.DecodeU32(stack[4]),
+		))
+	})
+}
+
+func (adapter *Adapter) tryUDPSendFunction() api.GoModuleFunction {
+	return api.GoModuleFunc(func(ctx context.Context, module api.Module, stack []uint64) {
+		stack[0] = api.EncodeI32(adapter.tryUDPSend(
+			ctx,
+			module,
+			stack[0],
+			api.DecodeU32(stack[1]),
+			api.DecodeU32(stack[2]),
+			api.DecodeU32(stack[3]),
+			api.DecodeU32(stack[4]),
+		))
+	})
+}
+
+func (adapter *Adapter) startUDPSendReadyFunction() api.GoModuleFunction {
+	return api.GoModuleFunc(func(ctx context.Context, module api.Module, stack []uint64) {
+		stack[0] = api.EncodeI32(adapter.startUDPSendReady(
+			ctx,
+			module,
+			stack[0],
+			stack[1],
+		))
+	})
+}
+
+func (adapter *Adapter) takeUDPSendReadyFunction() api.GoModuleFunction {
+	return api.GoModuleFunc(func(ctx context.Context, module api.Module, stack []uint64) {
+		stack[0] = api.EncodeI32(adapter.takeUDPSendReady(
+			ctx,
+			module,
+			stack[0],
+		))
+	})
+}
+
 func (adapter *Adapter) startUDPReceive(
 	_ context.Context,
 	_ api.Module,

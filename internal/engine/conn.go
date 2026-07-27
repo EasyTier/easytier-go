@@ -24,8 +24,6 @@ type streamConn struct {
 
 	readMu  sync.Mutex
 	writeMu sync.Mutex
-	read    operationDeadline
-	write   operationDeadline
 
 	closed    atomic.Bool
 	closeOnce sync.Once
@@ -42,8 +40,6 @@ func newStreamConn(
 		resource:  result.Resource,
 		local:     result.Local,
 		peer:      result.Peer,
-		read:      newOperationDeadline(),
-		write:     newOperationDeadline(),
 		closeDone: make(chan struct{}),
 	}
 }
@@ -61,45 +57,28 @@ func (conn *streamConn) Read(buffer []byte) (int, error) {
 	if maximum > maxDataPlaneTransfer {
 		maximum = maxDataPlaneTransfer
 	}
-	for {
-		ctx, changed, cancel := conn.read.operationContext()
-		timeout, err := contextTimeoutMillis(ctx)
-		if err != nil {
-			cancel()
-			return 0, normalizeDeadlineError(err)
-		}
-		result, err := conn.instance.performOperation(
-			ctx,
-			coreabi.OperationTCPRead,
-			func(
-				callCtx context.Context,
-				core dataPlaneCore,
-			) (coreabi.OperationID, error) {
-				return core.SubmitTCPRead(
-					callCtx,
-					conn.resource,
-					uint32(maximum),
-					timeout,
-				)
-			},
-		)
-		cancel()
-		if deadlineChanged(changed) && errors.Is(err, context.Canceled) &&
-			!conn.closed.Load() {
-			continue
-		}
-		if conn.closed.Load() && errors.Is(err, context.Canceled) {
-			return 0, net.ErrClosed
-		}
-		if err != nil {
-			return 0, normalizeDeadlineError(err)
-		}
-		n := copy(buffer, result.Data)
-		if n == 0 && result.EOF {
-			return 0, io.EOF
-		}
-		return n, nil
+	result, err := conn.instance.performOperation(
+		context.Background(),
+		coreabi.OperationTCPRead,
+		func(
+			callCtx context.Context,
+			core dataPlaneCore,
+		) (coreabi.OperationID, error) {
+			return core.SubmitTCPRead(
+				callCtx,
+				conn.resource,
+				uint32(maximum),
+			)
+		},
+	)
+	if err != nil {
+		return 0, normalizeDeadlineError(err)
 	}
+	n := copy(buffer, result.Data)
+	if n == 0 && result.EOF {
+		return 0, io.EOF
+	}
+	return n, nil
 }
 
 func (conn *streamConn) Write(buffer []byte) (int, error) {
@@ -117,15 +96,9 @@ func (conn *streamConn) Write(buffer []byte) (int, error) {
 		if end > len(buffer) {
 			end = len(buffer)
 		}
-		ctx, changed, cancel := conn.write.operationContext()
-		timeout, err := contextTimeoutMillis(ctx)
-		if err != nil {
-			cancel()
-			return written, normalizeDeadlineError(err)
-		}
 		chunk := buffer[written:end]
 		result, err := conn.instance.performOperation(
-			ctx,
+			context.Background(),
 			coreabi.OperationTCPWrite,
 			func(
 				callCtx context.Context,
@@ -135,18 +108,9 @@ func (conn *streamConn) Write(buffer []byte) (int, error) {
 					callCtx,
 					conn.resource,
 					chunk,
-					timeout,
 				)
 			},
 		)
-		cancel()
-		if deadlineChanged(changed) && errors.Is(err, context.Canceled) &&
-			!conn.closed.Load() {
-			continue
-		}
-		if conn.closed.Load() && errors.Is(err, context.Canceled) {
-			return written, net.ErrClosed
-		}
 		if err != nil {
 			return written, normalizeDeadlineError(err)
 		}
@@ -161,8 +125,6 @@ func (conn *streamConn) Write(buffer []byte) (int, error) {
 func (conn *streamConn) Close() error {
 	conn.closeOnce.Do(func() {
 		conn.closed.Store(true)
-		conn.read.set(time.Time{})
-		conn.write.set(time.Time{})
 		conn.closeErr = conn.instance.closeDataPlaneResource(conn.resource)
 		close(conn.closeDone)
 	})
@@ -182,25 +144,33 @@ func (conn *streamConn) SetDeadline(deadline time.Time) error {
 	if conn.closed.Load() {
 		return net.ErrClosed
 	}
-	conn.read.set(deadline)
-	conn.write.set(deadline)
-	return nil
+	return conn.instance.setDataPlaneResourceDeadline(
+		conn.resource,
+		coreabi.DeadlineRead|coreabi.DeadlineWrite,
+		deadline,
+	)
 }
 
 func (conn *streamConn) SetReadDeadline(deadline time.Time) error {
 	if conn.closed.Load() {
 		return net.ErrClosed
 	}
-	conn.read.set(deadline)
-	return nil
+	return conn.instance.setDataPlaneResourceDeadline(
+		conn.resource,
+		coreabi.DeadlineRead,
+		deadline,
+	)
 }
 
 func (conn *streamConn) SetWriteDeadline(deadline time.Time) error {
 	if conn.closed.Load() {
 		return net.ErrClosed
 	}
-	conn.write.set(deadline)
-	return nil
+	return conn.instance.setDataPlaneResourceDeadline(
+		conn.resource,
+		coreabi.DeadlineWrite,
+		deadline,
+	)
 }
 
 func normalizeDeadlineError(err error) error {

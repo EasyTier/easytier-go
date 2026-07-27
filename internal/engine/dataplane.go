@@ -36,13 +36,11 @@ type dataPlaneCore interface {
 		context.Context,
 		coreabi.ResourceID,
 		uint32,
-		uint64,
 	) (coreabi.OperationID, error)
 	SubmitTCPWrite(
 		context.Context,
 		coreabi.ResourceID,
 		[]byte,
-		uint64,
 	) (coreabi.OperationID, error)
 	SubmitUDPBind(
 		context.Context,
@@ -53,15 +51,19 @@ type dataPlaneCore interface {
 		context.Context,
 		coreabi.ResourceID,
 		uint32,
-		uint64,
 	) (coreabi.OperationID, error)
 	SubmitUDPSend(
 		context.Context,
 		coreabi.ResourceID,
 		netip.AddrPort,
 		[]byte,
-		uint64,
 	) (coreabi.OperationID, error)
+	SetResourceDeadline(
+		context.Context,
+		coreabi.ResourceID,
+		coreabi.DeadlineDirection,
+		uint64,
+	) error
 	DrainCompletions(context.Context, uint32) ([]coreabi.Completion, error)
 	TakeResult(
 		context.Context,
@@ -77,20 +79,25 @@ const (
 	dataPlaneSubmit dataPlaneCommandKind = iota + 1
 	dataPlaneCancel
 	dataPlaneCloseResource
+	dataPlaneSetDeadline
 )
 
 type dataPlaneCommand struct {
 	kind      dataPlaneCommandKind
 	operation coreabi.OperationID
 	resource  coreabi.ResourceID
+	direction coreabi.DeadlineDirection
+	deadline  time.Time
 	submit    func(context.Context, dataPlaneCore) (coreabi.OperationID, error)
 	opKind    coreabi.OperationKind
 	response  chan dataPlaneCommandResponse
 }
 
 type dataPlaneCommandResponse struct {
-	ticket operationTicket
-	err    error
+	ticket    operationTicket
+	outcome   operationOutcome
+	completed bool
+	err       error
 }
 
 type operationTicket struct {
@@ -141,6 +148,9 @@ func (instance *Instance) performOperation(
 		if submitted.err != nil {
 			return coreabi.OperationResult{}, mapDataPlaneError(submitted.err)
 		}
+		if submitted.completed {
+			return submitted.outcome.result, mapDataPlaneError(submitted.outcome.err)
+		}
 		ticket = submitted.ticket
 	case <-instance.done:
 		return coreabi.OperationResult{}, net.ErrClosed
@@ -153,6 +163,11 @@ func (instance *Instance) performOperation(
 		case submitted := <-response:
 			if submitted.err != nil {
 				return coreabi.OperationResult{}, mapDataPlaneError(submitted.err)
+			}
+			if submitted.completed {
+				return submitted.outcome.result, mapDataPlaneError(
+					submitted.outcome.err,
+				)
 			}
 			ticket = submitted.ticket
 		case <-instance.done:
@@ -255,6 +270,36 @@ func (instance *Instance) closeDataPlaneResource(
 	}
 }
 
+func (instance *Instance) setDataPlaneResourceDeadline(
+	resource coreabi.ResourceID,
+	direction coreabi.DeadlineDirection,
+	deadline time.Time,
+) error {
+	response := make(chan dataPlaneCommandResponse, 1)
+	request := dataPlaneCommand{
+		kind:      dataPlaneSetDeadline,
+		resource:  resource,
+		direction: direction,
+		deadline:  deadline,
+		response:  response,
+	}
+	select {
+	case instance.dataPlaneCommands <- request:
+	case <-instance.done:
+		return net.ErrClosed
+	case <-instance.closeRequested:
+		return net.ErrClosed
+	}
+	select {
+	case result := <-response:
+		return mapDataPlaneError(result.err)
+	case <-instance.done:
+		return net.ErrClosed
+	case <-instance.closeRequested:
+		return net.ErrClosed
+	}
+}
+
 func (instance *Instance) handleDataPlaneCommand(
 	request dataPlaneCommand,
 ) dataPlaneCommandResponse {
@@ -290,6 +335,15 @@ func (instance *Instance) handleDataPlaneCommand(
 			err: instance.dataPlane.CloseResource(
 				instance.ctx,
 				request.resource,
+			),
+		}
+	case dataPlaneSetDeadline:
+		return dataPlaneCommandResponse{
+			err: instance.dataPlane.SetResourceDeadline(
+				instance.ctx,
+				request.resource,
+				request.direction,
+				resourceDeadlineTimeoutMillis(request.deadline),
 			),
 		}
 	default:
@@ -393,6 +447,21 @@ func timeoutFromDeadline(deadline time.Time) (uint64, error) {
 		millis++
 	}
 	return uint64(millis), nil
+}
+
+func resourceDeadlineTimeoutMillis(deadline time.Time) uint64 {
+	if deadline.IsZero() {
+		return math.MaxUint64
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return 0
+	}
+	millis := remaining / time.Millisecond
+	if remaining%time.Millisecond != 0 {
+		millis++
+	}
+	return uint64(millis)
 }
 
 func contextTimeoutMillis(ctx context.Context) (uint64, error) {

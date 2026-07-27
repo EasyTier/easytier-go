@@ -62,6 +62,7 @@ type Reactor struct {
 	creates           map[uint64]*createOperation
 	dns               map[uint64]*dnsOperation
 	environments      map[uint64]*environmentOperation
+	eventSinks        map[uint64]eventSink
 	packetSinks       map[uint64]*packetSink
 	packetWrites      map[uint64]*packetWriteWaiter
 }
@@ -91,6 +92,7 @@ func New(parent context.Context, options Options) *Reactor {
 		creates:           make(map[uint64]*createOperation),
 		dns:               make(map[uint64]*dnsOperation),
 		environments:      make(map[uint64]*environmentOperation),
+		eventSinks:        make(map[uint64]eventSink),
 		packetSinks:       make(map[uint64]*packetSink),
 		packetWrites:      make(map[uint64]*packetWriteWaiter),
 	}
@@ -270,6 +272,7 @@ func (reactor *Reactor) Close() {
 	reactor.creates = make(map[uint64]*createOperation)
 	reactor.dns = make(map[uint64]*dnsOperation)
 	reactor.environments = make(map[uint64]*environmentOperation)
+	reactor.eventSinks = make(map[uint64]eventSink)
 	reactor.packetSinks = make(map[uint64]*packetSink)
 	reactor.packetWrites = make(map[uint64]*packetWriteWaiter)
 	reactor.mu.Unlock()

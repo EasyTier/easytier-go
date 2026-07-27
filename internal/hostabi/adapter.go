@@ -12,6 +12,7 @@ const importModule = "easytier_host"
 
 type Adapter struct {
 	reactor *reactor.Reactor
+	aeads   aeadCache
 }
 
 func New(runtime *reactor.Reactor) (*Adapter, error) {
@@ -26,15 +27,90 @@ func (adapter *Adapter) Instantiate(ctx context.Context, runtime wazero.Runtime)
 		return fmt.Errorf("instantiate host ABI with nil wazero runtime")
 	}
 	_, err := runtime.NewHostModuleBuilder(importModule).
-		NewFunctionBuilder().WithFunc(adapter.startRead).Export("start_read").
-		NewFunctionBuilder().WithFunc(adapter.takeRead).Export("take_read").
-		NewFunctionBuilder().WithFunc(adapter.startWrite).Export("start_write").
-		NewFunctionBuilder().WithFunc(adapter.takeWrite).Export("take_write").
-		NewFunctionBuilder().WithFunc(adapter.startUDPReceive).Export("start_udp_recv").
-		NewFunctionBuilder().WithFunc(adapter.takeUDPReceive).Export("take_udp_recv").
-		NewFunctionBuilder().WithFunc(adapter.tryUDPSend).Export("try_udp_send").
-		NewFunctionBuilder().WithFunc(adapter.startUDPSendReady).Export("start_udp_send_ready").
-		NewFunctionBuilder().WithFunc(adapter.takeUDPSendReady).Export("take_udp_send_ready").
+		NewFunctionBuilder().
+		WithGoModuleFunction(
+			adapter.emitEventFunction(),
+			emitEventParameterTypes,
+			hostI32ResultTypes,
+		).
+		Export("emit_event").
+		NewFunctionBuilder().
+		WithGoModuleFunction(
+			adapter.cryptoAEADFunction(false),
+			cryptoAEADParameterTypes,
+			hostI32ResultTypes,
+		).
+		Export("crypto_aead_seal").
+		NewFunctionBuilder().
+		WithGoModuleFunction(
+			adapter.cryptoAEADFunction(true),
+			cryptoAEADParameterTypes,
+			hostI32ResultTypes,
+		).
+		Export("crypto_aead_open").
+		NewFunctionBuilder().
+		WithGoModuleFunction(
+			adapter.startReadFunction(),
+			startUDPReceiveParameterTypes,
+			hostI32ResultTypes,
+		).
+		Export("start_read").
+		NewFunctionBuilder().
+		WithGoModuleFunction(
+			adapter.takeReadFunction(),
+			takeReadParameterTypes,
+			hostI32ResultTypes,
+		).
+		Export("take_read").
+		NewFunctionBuilder().
+		WithGoModuleFunction(
+			adapter.startWriteFunction(),
+			startWriteParameterTypes,
+			hostI32ResultTypes,
+		).
+		Export("start_write").
+		NewFunctionBuilder().
+		WithGoModuleFunction(
+			adapter.takeWriteFunction(),
+			operationParameterTypes,
+			hostI32ResultTypes,
+		).
+		Export("take_write").
+		NewFunctionBuilder().
+		WithGoModuleFunction(
+			adapter.startUDPReceiveFunction(),
+			startUDPReceiveParameterTypes,
+			hostI32ResultTypes,
+		).
+		Export("start_udp_recv").
+		NewFunctionBuilder().
+		WithGoModuleFunction(
+			adapter.takeUDPReceiveFunction(),
+			takeUDPReceiveParameterTypes,
+			hostI32ResultTypes,
+		).
+		Export("take_udp_recv").
+		NewFunctionBuilder().
+		WithGoModuleFunction(
+			adapter.tryUDPSendFunction(),
+			tryUDPSendParameterTypes,
+			hostI32ResultTypes,
+		).
+		Export("try_udp_send").
+		NewFunctionBuilder().
+		WithGoModuleFunction(
+			adapter.startUDPSendReadyFunction(),
+			handleOperationParameterTypes,
+			hostI32ResultTypes,
+		).
+		Export("start_udp_send_ready").
+		NewFunctionBuilder().
+		WithGoModuleFunction(
+			adapter.takeUDPSendReadyFunction(),
+			operationParameterTypes,
+			hostI32ResultTypes,
+		).
+		Export("take_udp_send_ready").
 		NewFunctionBuilder().WithFunc(adapter.startTCPConnect).Export("start_tcp_connect").
 		NewFunctionBuilder().WithFunc(adapter.takeTCPConnect).Export("take_tcp_connect").
 		NewFunctionBuilder().WithFunc(adapter.startUDPBind).Export("start_udp_bind").
@@ -51,9 +127,27 @@ func (adapter *Adapter) Instantiate(ctx context.Context, runtime wazero.Runtime)
 		NewFunctionBuilder().WithFunc(adapter.takeDNSSRV).Export("take_dns_srv").
 		NewFunctionBuilder().WithFunc(adapter.startLocalAddrForRemote).Export("start_local_addr_for_remote").
 		NewFunctionBuilder().WithFunc(adapter.takeLocalAddrForRemote).Export("take_local_addr_for_remote").
-		NewFunctionBuilder().WithFunc(adapter.tryPacketWrite).Export("try_packet_write").
-		NewFunctionBuilder().WithFunc(adapter.startPacketWriteReady).Export("start_packet_write_ready").
-		NewFunctionBuilder().WithFunc(adapter.takePacketWriteReady).Export("take_packet_write_ready").
+		NewFunctionBuilder().
+		WithGoModuleFunction(
+			adapter.tryPacketWriteFunction(),
+			tryPacketWriteParameterTypes,
+			hostI32ResultTypes,
+		).
+		Export("try_packet_write").
+		NewFunctionBuilder().
+		WithGoModuleFunction(
+			adapter.startPacketWriteReadyFunction(),
+			handleOperationParameterTypes,
+			hostI32ResultTypes,
+		).
+		Export("start_packet_write_ready").
+		NewFunctionBuilder().
+		WithGoModuleFunction(
+			adapter.takePacketWriteReadyFunction(),
+			operationParameterTypes,
+			hostI32ResultTypes,
+		).
+		Export("take_packet_write_ready").
 		NewFunctionBuilder().WithFunc(adapter.cancelOperation).Export("cancel_operation").
 		NewFunctionBuilder().WithFunc(adapter.closeHandle).Export("close").
 		Instantiate(ctx)

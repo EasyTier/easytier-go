@@ -61,11 +61,12 @@ The host internally wraps the TOML in EasyTier's version 14 create envelope and
 adds the configured environment snapshot. Schema versions and JSON envelopes
 are not application-facing APIs.
 
-## Linux TUN example
+## Cross-platform TUN example
 
-The Linux TUN example joins an existing EasyTier network with a fixed virtual
-IPv4 address. It creates and configures the TUN interface itself, then forwards
-raw IPv4 packets through `SendPacket` and `ReceivePacket`:
+The TUN example joins an existing EasyTier network with a fixed virtual IPv4
+address on Linux, macOS, or Windows. It creates and configures the native TUN
+interface itself, then forwards raw IPv4 packets through `SendPacket` and
+`ReceivePacket`:
 
 ```sh
 cd examples/tun
@@ -76,9 +77,29 @@ sudo go run . \
   --ipv4 10.144.0.10/24
 ```
 
-Repeat `-p` to configure more peers. The command creates `et-go0` with an MTU of
-1380 and requires Linux, `/dev/net/tun`, and root or `CAP_NET_ADMIN`. Closing
-the command also removes the non-persistent TUN interface.
+Repeat `-p` to configure more peers. The command creates `et-goN` on Linux and
+Windows or `utunN` on macOS, assigns the requested address, and sets an MTU of
+1380. Run it as root or with `CAP_NET_ADMIN` on Linux, with `sudo` on macOS, or
+from an Administrator terminal on Windows. Closing the command removes the TUN
+interface. The example does not install a default route or enable GSO.
+
+Repeat `-port-forward` to expose local TCP or UDP ports through the instance's
+`Dial` interface:
+
+```sh
+sudo go run . \
+  -p tcp://198.51.100.10:11010 \
+  --network-name office \
+  --network-secret secret \
+  --ipv4 10.144.0.10/24 \
+  -port-forward tcp://127.0.0.1:5202/10.144.0.20:5201 \
+  -port-forward udp://127.0.0.1:5202/10.144.0.20:5201
+```
+
+For example, run `iperf3 -c 127.0.0.1 -p 5202` for TCP or add
+`-u -b 0 -l 1200` for UDP. iperf3's UDP mode still needs the TCP forward for
+its control connection. UDP forwarding uses one overlay connection per rule;
+replies are sent to the local client that most recently sent a packet.
 
 ## Platform capabilities
 
@@ -129,12 +150,14 @@ core implementation changes:
 EASYTIER_SOURCE=/path/to/EasyTier go generate ./...
 ```
 
-Generation builds EasyTier's release `easytier_core.wasm` with the
-`proxy-smoltcp-stack` and `aes-gcm` features, a fixed source path remap, and a
-source-date epoch, then records the EasyTier commit and SHA-256 beside the
-artifact. Tracked EasyTier changes block generation; unrelated untracked files
-do not. `corehost.CoreInfo()` exposes that provenance without exposing the
-artifact bytes.
+Generation runs EasyTier's `script/build-wasi-core.sh`, which builds release
+`easytier_core.wasm` with the Go-host features and writes an optimized
+`easytier_core_go_host.wasm` with the pinned, SHA-256-verified Binaryen release.
+The generator supplies a fixed source path remap and source-date epoch, then
+records the EasyTier commit and optimized artifact SHA-256. Tracked EasyTier
+changes block generation; unrelated untracked files do not.
+`corehost.CoreInfo()` exposes that provenance without exposing the artifact
+bytes.
 
 The test-only socket probe is retained from
 [EasyTier commit 6a3d15f](https://github.com/EasyTier/EasyTier/tree/6a3d15f8758eed759d55401ff4ed7c47021b0819/tools/wasi-socket-poc/guest);

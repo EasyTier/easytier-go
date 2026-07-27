@@ -38,6 +38,15 @@ type guestCore interface {
 	Drop(context.Context) error
 }
 
+type Event struct {
+	// Kind is a stable snake-case CoreEvent variant name.
+	Kind string
+	// Message is a human-readable description intended for logging.
+	Message string
+}
+
+const instanceEventQueueCapacity = 256
+
 type Instance struct {
 	host   *Host
 	ctx    context.Context
@@ -47,6 +56,8 @@ type Instance struct {
 	dataPlane  dataPlaneCore
 	reactor    *reactor.Reactor
 	packetSink uint64
+	eventSink  uint64
+	events     chan Event
 
 	commands          chan command
 	dataPlaneCommands chan dataPlaneCommand
@@ -109,7 +120,7 @@ func (instance *Instance) SendPacket(ctx context.Context, packet []byte) error {
 	}
 	return instance.execute(ctx, command{
 		kind:   commandSendPacket,
-		packet: append([]byte(nil), packet...),
+		packet: packet,
 	})
 }
 
@@ -123,6 +134,10 @@ func (instance *Instance) ReceivePacket(ctx context.Context) ([]byte, error) {
 	default:
 	}
 	return instance.reactor.ReceivePacket(ctx, instance.packetSink)
+}
+
+func (instance *Instance) Events() <-chan Event {
+	return instance.events
 }
 
 func (instance *Instance) Wait(ctx context.Context) error {
@@ -176,6 +191,16 @@ func (instance *Instance) execute(ctx context.Context, request command) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+	if request.kind == commandSendPacket {
+		// The guest may retain packet until it responds. Do not let caller
+		// cancellation end the borrow after the request enters the queue.
+		select {
+		case err := <-request.response:
+			return err
+		case <-instance.done:
+			return instance.finishedError("execute EasyTier command")
+		}
+	}
 	select {
 	case err := <-request.response:
 		return err
@@ -200,8 +225,11 @@ func (instance *Instance) run() {
 
 func (instance *Instance) driveLoop() error {
 	deadline := int64(math.MaxInt64)
+	timer := time.NewTimer(time.Hour)
+	stopTimer(timer)
+	defer stopTimer(timer)
 	for {
-		timer, timerChannel := deadlineTimer(deadline)
+		timerChannel := deadlineTimer(timer, deadline)
 		select {
 		case request := <-instance.commands:
 			stopTimer(timer)
@@ -234,6 +262,12 @@ func (instance *Instance) driveLoop() error {
 			next, driveErr := instance.drive(false)
 			if driveErr != nil {
 				response.err = driveErr
+			} else {
+				select {
+				case response.outcome = <-response.ticket.result:
+					response.completed = true
+				default:
+				}
 			}
 			request.response <- response
 			if driveErr != nil {
@@ -380,6 +414,8 @@ func (instance *Instance) shutdown() error {
 	dropErr := instance.core.Drop(cleanupContext)
 	instance.host.guestMu.Unlock()
 	instance.reactor.UnregisterPacketSink(instance.packetSink)
+	instance.reactor.UnregisterEventSink(instance.eventSink)
+	close(instance.events)
 	instance.cancel()
 	instance.host.removeInstance(instance)
 	return dropErr
@@ -398,16 +434,17 @@ func (instance *Instance) terminalError() error {
 	return instance.terminalErr
 }
 
-func deadlineTimer(deadline int64) (*time.Timer, <-chan time.Time) {
+func deadlineTimer(timer *time.Timer, deadline int64) <-chan time.Time {
+	stopTimer(timer)
 	if deadline == math.MaxInt64 {
-		return nil, nil
+		return nil
 	}
 	duration := time.Duration(deadline) * time.Millisecond
 	if deadline > int64(math.MaxInt64/time.Millisecond) {
 		duration = time.Duration(math.MaxInt64)
 	}
-	timer := time.NewTimer(duration)
-	return timer, timer.C
+	timer.Reset(duration)
+	return timer.C
 }
 
 func stopTimer(timer *time.Timer) {

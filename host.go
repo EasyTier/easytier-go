@@ -34,6 +34,9 @@ type EmbeddedCoreInfo struct {
 	SHA256         string
 }
 
+// Event is one best-effort notification emitted by an EasyTier instance.
+type Event = engine.Event
+
 type Host struct {
 	engine *engine.Host
 }
@@ -121,6 +124,16 @@ func (instance *Instance) ReceivePacket(ctx context.Context) ([]byte, error) {
 		return nil, fmt.Errorf("receive packet from nil EasyTier instance")
 	}
 	return instance.engine.ReceivePacket(ctx)
+}
+
+// Events returns the instance's bounded event stream.
+//
+// Slow consumers may miss events. The channel closes with the instance.
+func (instance *Instance) Events() <-chan Event {
+	if instance == nil || instance.engine == nil {
+		return nil
+	}
+	return instance.engine.Events()
 }
 
 func (instance *Instance) Dial(

@@ -6,6 +6,67 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
+var (
+	takeReadParameterTypes = []api.ValueType{
+		api.ValueTypeI64,
+		api.ValueTypeI32,
+		api.ValueTypeI32,
+	}
+	startWriteParameterTypes = []api.ValueType{
+		api.ValueTypeI64,
+		api.ValueTypeI64,
+		api.ValueTypeI32,
+		api.ValueTypeI32,
+	}
+)
+
+func (adapter *Adapter) startReadFunction() api.GoModuleFunction {
+	return api.GoModuleFunc(func(ctx context.Context, module api.Module, stack []uint64) {
+		stack[0] = api.EncodeI32(adapter.startRead(
+			ctx,
+			module,
+			stack[0],
+			stack[1],
+			api.DecodeU32(stack[2]),
+		))
+	})
+}
+
+func (adapter *Adapter) takeReadFunction() api.GoModuleFunction {
+	return api.GoModuleFunc(func(ctx context.Context, module api.Module, stack []uint64) {
+		stack[0] = api.EncodeI32(adapter.takeRead(
+			ctx,
+			module,
+			stack[0],
+			api.DecodeU32(stack[1]),
+			api.DecodeU32(stack[2]),
+		))
+	})
+}
+
+func (adapter *Adapter) startWriteFunction() api.GoModuleFunction {
+	return api.GoModuleFunc(func(ctx context.Context, module api.Module, stack []uint64) {
+		stack[0] = api.EncodeI32(adapter.startWrite(
+			ctx,
+			module,
+			stack[0],
+			stack[1],
+			api.DecodeU32(stack[2]),
+			api.DecodeU32(stack[3]),
+		))
+	})
+}
+
+func (adapter *Adapter) takeWriteFunction() api.GoModuleFunction {
+	return api.GoModuleFunc(func(ctx context.Context, module api.Module, stack []uint64) {
+		stack[0] = api.EncodeI32(adapter.takeWrite(
+			ctx,
+			module,
+			stack[0],
+		))
+	})
+}
+
 func (adapter *Adapter) startRead(
 	_ context.Context,
 	_ api.Module,

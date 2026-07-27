@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -111,12 +112,45 @@ func TestPublicFacadeConnectsTwoCoresAndExchangesPacket(t *testing.T) {
 	if string(received) != string(packet) {
 		t.Fatalf("received packet = %x, want %x", received, packet)
 	}
+	event := waitForEvent(t, ctx, client.Events(), "peer_added")
+	if !strings.Contains(event.Message, "PeerAdded") {
+		t.Fatalf("peer event message = %q", event.Message)
+	}
 
 	if err := client.Stop(ctx); err != nil {
 		t.Fatalf("stop client: %v", err)
 	}
 	if err := server.Stop(ctx); err != nil {
 		t.Fatalf("stop server: %v", err)
+	}
+}
+
+func TestPublicEventStreamClosesWithInstance(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	host, err := corehost.New(ctx, corehost.Options{})
+	if err != nil {
+		t.Fatalf("create host: %v", err)
+	}
+	defer host.Close(ctx)
+	instance, err := host.CreateInstance(
+		ctx,
+		instanceConfig(3, "10.144.0.3", 0, false, false),
+	)
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+	events := instance.Events()
+	if err := instance.Close(ctx); err != nil {
+		t.Fatalf("close instance: %v", err)
+	}
+	select {
+	case _, open := <-events:
+		if open {
+			t.Fatal("event stream remained open after instance close")
+		}
+	case <-ctx.Done():
+		t.Fatal("event stream did not close with instance")
 	}
 }
 
@@ -155,6 +189,28 @@ func instanceConfig(
 		listener,
 		peer,
 	)
+}
+
+func waitForEvent(
+	t *testing.T,
+	ctx context.Context,
+	events <-chan corehost.Event,
+	kind string,
+) corehost.Event {
+	t.Helper()
+	for {
+		select {
+		case event, open := <-events:
+			if !open {
+				t.Fatalf("event stream closed before %q", kind)
+			}
+			if event.Kind == kind {
+				return event
+			}
+		case <-ctx.Done():
+			t.Fatalf("wait for event %q: %v", kind, ctx.Err())
+		}
+	}
 }
 
 type recordingSocketFactory struct {

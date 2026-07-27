@@ -124,6 +124,42 @@ func TestReceivePacketUnblocksWhenReactorCloses(t *testing.T) {
 	}
 }
 
+func TestEventSinkRejectsFullAndUnregisteredWrites(t *testing.T) {
+	runtime := New(context.Background(), Options{})
+	defer runtime.Close()
+	events := make(chan string, 1)
+	handle, err := runtime.RegisterEventSink(func(kind, message string) bool {
+		select {
+		case events <- kind + ":" + message:
+			return true
+		default:
+			return false
+		}
+	})
+	if err != nil {
+		t.Fatalf("register event sink: %v", err)
+	}
+	if err := runtime.TryEventWrite(handle, "peer_added", "PeerAdded(7)"); err != nil {
+		t.Fatalf("write event: %v", err)
+	}
+	if err := runtime.TryEventWrite(handle, "peer_removed", "PeerRemoved(7)"); !errors.Is(
+		err,
+		ErrWouldBlock,
+	) {
+		t.Fatalf("full event sink error = %v, want would block", err)
+	}
+	if event := <-events; event != "peer_added:PeerAdded(7)" {
+		t.Fatalf("event = %q", event)
+	}
+	runtime.UnregisterEventSink(handle)
+	if err := runtime.TryEventWrite(handle, "peer_removed", "PeerRemoved(7)"); !errors.Is(
+		err,
+		ErrInvalid,
+	) {
+		t.Fatalf("unregistered event sink error = %v, want invalid", err)
+	}
+}
+
 func TestReceivePacketUnblocksWhenSinkIsUnregistered(t *testing.T) {
 	runtime := New(context.Background(), Options{})
 	defer runtime.Close()
@@ -401,5 +437,95 @@ func TestUDPReceiveErrorRestartsWorkerForRemainingWaiter(t *testing.T) {
 	}
 	if string(datagram.Data) != "retry" {
 		t.Fatalf("retried UDP payload = %q, want retry", datagram.Data)
+	}
+}
+
+type prefetchPacketConn struct {
+	readStarted chan struct{}
+	payloads    chan []byte
+	closed      chan struct{}
+	closeOnce   sync.Once
+}
+
+func newPrefetchPacketConn() *prefetchPacketConn {
+	return &prefetchPacketConn{
+		readStarted: make(chan struct{}, 3),
+		payloads:    make(chan []byte, 2),
+		closed:      make(chan struct{}),
+	}
+}
+
+func (connection *prefetchPacketConn) ReadFrom(buffer []byte) (int, net.Addr, error) {
+	connection.readStarted <- struct{}{}
+	select {
+	case payload := <-connection.payloads:
+		return copy(buffer, payload), &net.UDPAddr{
+			IP:   net.IPv4(127, 0, 0, 1),
+			Port: 3,
+		}, nil
+	case <-connection.closed:
+		return 0, nil, net.ErrClosed
+	}
+}
+
+func (*prefetchPacketConn) WriteTo(payload []byte, _ net.Addr) (int, error) {
+	return len(payload), nil
+}
+
+func (connection *prefetchPacketConn) Close() error {
+	connection.closeOnce.Do(func() { close(connection.closed) })
+	return nil
+}
+
+func (*prefetchPacketConn) LocalAddr() net.Addr {
+	return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}
+}
+
+func (*prefetchPacketConn) SetDeadline(time.Time) error      { return nil }
+func (*prefetchPacketConn) SetReadDeadline(time.Time) error  { return nil }
+func (*prefetchPacketConn) SetWriteDeadline(time.Time) error { return nil }
+
+func TestUDPReceivePrefetchesWhileWaiterIsPending(t *testing.T) {
+	const handle uint64 = 31
+	connection := newPrefetchPacketConn()
+	runtime := New(context.Background(), Options{
+		InitialDatagrams: map[uint64]net.PacketConn{handle: connection},
+	})
+	defer runtime.Close()
+
+	if err := runtime.StartUDPReceive(handle, 1); err != nil {
+		t.Fatalf("start first UDP receive: %v", err)
+	}
+	waitForUDPReadStart(t, connection)
+	connection.payloads <- []byte("first")
+	waitForUDPReadStart(t, connection)
+	connection.payloads <- []byte("second")
+	waitForUDPReadStart(t, connection)
+
+	first, err := runtime.TakeUDPReceive(1, 64)
+	if err != nil {
+		t.Fatalf("take first prefetched UDP receive: %v", err)
+	}
+	if string(first.Data) != "first" {
+		t.Fatalf("first prefetched UDP payload = %q, want first", first.Data)
+	}
+	if err := runtime.StartUDPReceive(handle, 2); err != nil {
+		t.Fatalf("start second UDP receive: %v", err)
+	}
+	second, err := runtime.TakeUDPReceive(2, 64)
+	if err != nil {
+		t.Fatalf("take second prefetched UDP receive: %v", err)
+	}
+	if string(second.Data) != "second" {
+		t.Fatalf("second prefetched UDP payload = %q, want second", second.Data)
+	}
+}
+
+func waitForUDPReadStart(t *testing.T, connection *prefetchPacketConn) {
+	t.Helper()
+	select {
+	case <-connection.readStarted:
+	case <-time.After(time.Second):
+		t.Fatal("UDP read did not start")
 	}
 }

@@ -1,14 +1,36 @@
 package main
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestCoreFeaturesIncludeAcceleratedEncryption(t *testing.T) {
-	features := "," + coreFeatures + ","
-	if !strings.Contains(features, ",ring-crypto,") {
-		t.Fatalf("WASM features do not include accelerated encryption: %s", coreFeatures)
+func TestCoreArtifactPathUsesCargoTargetDirectory(t *testing.T) {
+	source := filepath.Join(string(filepath.Separator), "checkout")
+	for _, test := range []struct {
+		name           string
+		cargoTargetDir string
+		wantTargetDir  string
+	}{
+		{name: "default", wantTargetDir: filepath.Join(source, "target")},
+		{
+			name:           "relative",
+			cargoTargetDir: "build",
+			wantTargetDir:  filepath.Join(source, "build"),
+		},
+		{
+			name:           "absolute",
+			cargoTargetDir: filepath.Join(string(filepath.Separator), "cache"),
+			wantTargetDir:  filepath.Join(string(filepath.Separator), "cache"),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			want := filepath.Join(test.wantTargetDir, coreArtifact)
+			if got := coreArtifactPath(source, test.cargoTargetDir); got != want {
+				t.Fatalf("core artifact path = %q, want %q", got, want)
+			}
+		})
 	}
 }
 
