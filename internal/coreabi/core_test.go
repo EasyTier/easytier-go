@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/experimental/wazerotest"
+	"github.com/metacubex/wazero/api"
+	"github.com/metacubex/wazero/experimental/wazerotest"
 )
 
 func TestCallOneCachesFunction(t *testing.T) {

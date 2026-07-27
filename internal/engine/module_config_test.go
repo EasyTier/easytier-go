@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tetratelabs/wazero"
-	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
+	"github.com/metacubex/wazero"
+	"github.com/metacubex/wazero/imports/wasi_snapshot_preview1"
 )
 
 // wasiWalltimeProbe imports clock_time_get and exports now(), which returns

@@ -6,7 +6,7 @@ import (
 	"crypto/cipher"
 	"sync"
 
-	"github.com/tetratelabs/wazero/api"
+	"github.com/metacubex/wazero/api"
 )
 
 const (

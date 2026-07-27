@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/EasyTier/easytier-go-host/internal/reactor"
-	"github.com/tetratelabs/wazero"
+	"github.com/metacubex/wazero"
 )
 
 const importModule = "easytier_host"

@@ -3,7 +3,7 @@ package hostabi
 import (
 	"context"
 
-	"github.com/tetratelabs/wazero/api"
+	"github.com/metacubex/wazero/api"
 )
 
 const maxHostPacketLen = 1024 * 1024

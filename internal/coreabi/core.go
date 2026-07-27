@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/tetratelabs/wazero/api"
+	"github.com/metacubex/wazero/api"
 )
 
 type State int32

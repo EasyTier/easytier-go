@@ -7,7 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/EasyTier/easytier-go-host/platform"
-	"github.com/tetratelabs/wazero/api"
+	"github.com/metacubex/wazero/api"
 )
 
 const (

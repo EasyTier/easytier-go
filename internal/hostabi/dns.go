@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/EasyTier/easytier-go-host/internal/reactor"
-	"github.com/tetratelabs/wazero/api"
+	"github.com/metacubex/wazero/api"
 )
 
 const maxDNSQueryLen = 4096
