@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"syscall"
 
 	"github.com/EasyTier/easytier-go-host/platform"
 )
 
 // SocketFactory implements platform.SocketFactory with the Go standard
-// library. OS-specific socket policy is rejected instead of silently ignored.
+// library and the socket controls required by EasyTier hole punching.
 type SocketFactory struct{}
 
 func (SocketFactory) ConnectTCP(
@@ -23,8 +24,21 @@ func (SocketFactory) ConnectTCP(
 	if err := validateTCPBindOptions(options.Bind); err != nil {
 		return nil, err
 	}
-	dialer := net.Dialer{LocalAddr: options.Bind.LocalAddr}
-	return dialer.DialContext(ctx, "tcp", options.RemoteAddr.String())
+	dialer := net.Dialer{
+		LocalAddr: options.Bind.LocalAddr,
+		Control:   tcpControl(options.Bind),
+	}
+	connection, err := dialer.DialContext(ctx, "tcp", options.RemoteAddr.String())
+	if err != nil {
+		return nil, err
+	}
+	if options.Purpose == platform.TCPConnectSTUNProbe {
+		if err := connection.(*net.TCPConn).SetLinger(0); err != nil {
+			_ = connection.Close()
+			return nil, fmt.Errorf("set TCP STUN probe linger: %w", err)
+		}
+	}
+	return connection, nil
 }
 
 func (SocketFactory) BindUDP(
@@ -45,7 +59,8 @@ func (SocketFactory) ListenTCP(
 	if err := validateTCPBindOptions(options.Bind); err != nil {
 		return nil, err
 	}
-	return (&net.ListenConfig{}).Listen(ctx, "tcp", options.Bind.LocalAddr.String())
+	config := net.ListenConfig{Control: tcpControl(options.Bind)}
+	return config.Listen(ctx, "tcp", options.Bind.LocalAddr.String())
 }
 
 func udpNetwork(options platform.UDPBindOptions) string {
@@ -66,11 +81,31 @@ func udpNetwork(options platform.UDPBindOptions) string {
 
 func validateTCPBindOptions(options platform.TCPBindOptions) error {
 	if options.Context.SocketMark != nil || options.Context.NetNS != nil ||
-		options.BindDevice != nil || options.ReuseAddr != nil ||
-		options.ReusePort || options.OnlyV6 {
+		options.BindDevice != nil {
 		return fmt.Errorf("non-default TCP bind policy is not supported by netstd")
 	}
 	return nil
+}
+
+func tcpControl(
+	options platform.TCPBindOptions,
+) func(string, string, syscall.RawConn) error {
+	return func(network, _ string, connection syscall.RawConn) error {
+		var socketErr error
+		if err := connection.Control(func(descriptor uintptr) {
+			socketErr = applyTCPSocketOptions(descriptor, network, options)
+		}); err != nil {
+			return err
+		}
+		return socketErr
+	}
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 type DNSResolver struct {
