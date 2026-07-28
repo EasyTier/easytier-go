@@ -73,24 +73,24 @@ func TestWebClientEndToEnd(t *testing.T) {
 	}, "application instance heartbeat")
 
 	const managedID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
-	virtualIPv4 := "10.155.0.2"
-	networkLength := 24
 	networkName := "go-host-managed"
 	networkSecret := "test"
-	noTun := true
-	disableP2P := true
-	disableIPv6 := true
 	payload, err := json.Marshal(map[string]any{
 		"config": map[string]any{
-			"instance_id":       managedID,
-			"virtual_ipv4":      virtualIPv4,
-			"network_length":    networkLength,
-			"network_name":      networkName,
-			"network_secret":    networkSecret,
-			"networking_method": 1,
-			"no_tun":            noTun,
-			"disable_p2p":       disableP2P,
-			"disable_ipv6":      disableIPv6,
+			"instance_id":        managedID,
+			"dhcp":               true,
+			"network_name":       networkName,
+			"network_secret":     networkSecret,
+			"networking_method":  2,
+			"listener_urls":      []string{"tcp://0.0.0.0:11010", "udp://0.0.0.0:11010", "wg://0.0.0.0:11011"},
+			"disable_p2p":        true,
+			"disable_ipv6":       true,
+			"enable_vpn_portal":  true,
+			"data_compress_algo": 2,
+			"credential_file":    "/unsupported",
+			"enable_quic_proxy":  true,
+			"mapped_listeners":   []string{"wg://0.0.0.0:11012"},
+			"advanced_settings":  true,
 		},
 		"save": false,
 	})
@@ -121,7 +121,10 @@ func TestWebClientEndToEnd(t *testing.T) {
 	)
 	if status != http.StatusOK ||
 		!bytes.Contains(body, []byte(managedID)) ||
-		!bytes.Contains(body, []byte(`"running":true`)) {
+		!bytes.Contains(body, []byte(`"running":true`)) ||
+		!bytes.Contains(body, []byte("tcp://")) ||
+		!bytes.Contains(body, []byte("udp://")) ||
+		bytes.Contains(body, []byte("wg://")) {
 		t.Fatalf("collect managed status: status=%d body=%s", status, body)
 	}
 
