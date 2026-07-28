@@ -124,6 +124,21 @@ func (instance *Instance) SendPacket(ctx context.Context, packet []byte) error {
 	return instance.engine.SendPacket(ctx, packet)
 }
 
+// RPC executes one instance-scoped EasyTier RPC.
+//
+// encodedRequest must be a protobuf-encoded common.RpcRequest whose descriptor
+// identifies an RPC registered by the embedded core. The returned bytes are a
+// protobuf-encoded common.RpcResponse, including any method-level error.
+func (instance *Instance) RPC(
+	ctx context.Context,
+	encodedRequest []byte,
+) ([]byte, error) {
+	if instance == nil || instance.engine == nil {
+		return nil, fmt.Errorf("call RPC through nil EasyTier instance")
+	}
+	return instance.engine.RPC(ctx, encodedRequest)
+}
+
 func (instance *Instance) ReceivePacket(ctx context.Context) ([]byte, error) {
 	if instance == nil || instance.engine == nil {
 		return nil, fmt.Errorf("receive packet from nil EasyTier instance")

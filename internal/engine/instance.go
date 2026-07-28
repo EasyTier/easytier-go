@@ -54,6 +54,7 @@ type Instance struct {
 
 	core       guestCore
 	dataPlane  dataPlaneCore
+	rpc        rpcCore
 	reactor    *reactor.Reactor
 	packetSink uint64
 	eventSink  uint64
@@ -61,7 +62,9 @@ type Instance struct {
 
 	commands          chan command
 	dataPlaneCommands chan dataPlaneCommand
+	rpcCommands       chan rpcCommand
 	pendingOperations map[coreabi.OperationID]*pendingOperation
+	pendingRPCs       map[coreabi.RPCOperationID]*pendingRPC
 	completions       chan struct{}
 	closeRequested    chan struct{}
 	closeOnce         sync.Once
@@ -216,6 +219,7 @@ func (instance *Instance) execute(ctx context.Context, request command) error {
 func (instance *Instance) run() {
 	runErr := instance.driveLoop()
 	instance.failPendingOperations(net.ErrClosed)
+	instance.failPendingRPCs(net.ErrClosed)
 	cleanupErr := instance.shutdown()
 	instance.errMu.Lock()
 	instance.terminalErr = errors.Join(runErr, cleanupErr)
@@ -263,6 +267,28 @@ func (instance *Instance) driveLoop() error {
 			if driveErr != nil {
 				response.err = driveErr
 			} else {
+				select {
+				case response.outcome = <-response.ticket.result:
+					response.completed = true
+				default:
+				}
+			}
+			request.response <- response
+			if driveErr != nil {
+				return driveErr
+			}
+			deadline = next
+		case request := <-instance.rpcCommands:
+			stopTimer(timer)
+			response := instance.handleRPCCommand(request)
+			if response.err != nil {
+				request.response <- response
+				continue
+			}
+			next, driveErr := instance.drive(false)
+			if driveErr != nil {
+				response.err = driveErr
+			} else if response.ticket.result != nil {
 				select {
 				case response.outcome = <-response.ticket.result:
 					response.completed = true
@@ -392,6 +418,9 @@ func (instance *Instance) drive(notify bool) (int64, error) {
 	}
 	moreDataPlaneCompletions, err := instance.drainDataPlaneCompletions()
 	if err != nil {
+		return 0, err
+	}
+	if err := instance.takeRPCResponses(); err != nil {
 		return 0, err
 	}
 	deadline, err := instance.core.NextDeadline(instance.ctx)

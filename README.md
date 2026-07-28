@@ -55,6 +55,14 @@ connection, err := instance.Dial(ctx, "tcp4", "10.144.0.2:8080")
 packets, err := instance.ListenPacket("udp4", ":5353")
 ```
 
+`Instance.RPC` exposes the embedded core's existing instance-scoped management
+RPCs without adding a second operator API. Its input is a serialized
+`common.RpcRequest`, including the normally deprecated `descriptor` field, and
+its output is the complete serialized `common.RpcResponse`. Method failures
+remain in that response envelope; Go errors report host, ABI, cancellation, or
+instance-lifecycle failures. Cancelling the context frees the pending guest
+operation.
+
 `InstanceConfigBuilder` exposes the instance settings supported by this host:
 network identity, hostname, virtual IPv4 address, peers and listeners, IPv4 and
 IPv6 STUN servers, P2P policy, hole-punching methods, encryption, and secure
@@ -208,8 +216,8 @@ The implementation is split by responsibility:
 - `internal/hostabi` implements the custom `easytier_host` imports, guest
   memory copying, wire codecs, and ABI status translation.
 - `internal/coreabi` owns guest memory, the big-endian data-plane wire codec,
-  ABI discovery, and typed `easytier_instance_*` /
-  `easytier_data_plane_*` export calls.
+  ABI discovery, and typed `easytier_instance_*`, `easytier_data_plane_*`, and
+  `easytier_rpc_*` export calls.
 - `internal/engine` composes standard WASI, both EasyTier ABI directions, the
   single-owner driver, operation cancellation, deadlines, standard Go network
   resources, and instance shutdown.

@@ -51,6 +51,9 @@ func New(module api.Module) (*Core, error) {
 	if err := core.validateDataPlaneABI(context.Background()); err != nil {
 		return nil, fmt.Errorf("validate EasyTier data plane ABI: %w", err)
 	}
+	if err := core.validateRPCABI(context.Background()); err != nil {
+		return nil, fmt.Errorf("validate EasyTier RPC ABI: %w", err)
+	}
 	return core, nil
 }
 
