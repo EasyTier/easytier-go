@@ -91,6 +91,18 @@ func run(ctx context.Context, options options) error {
 	if err := instance.Start(ctx); err != nil {
 		return fmt.Errorf("start EasyTier instance: %w", err)
 	}
+	if endpoint := strings.TrimSpace(options.webEndpoint); endpoint != "" {
+		webClient, err := host.ConnectWebClient(ctx, corehost.WebClientOptions{
+			Endpoint:   endpoint,
+			MachineID:  strings.TrimSpace(options.webMachineID),
+			Hostname:   strings.TrimSpace(options.webHostname),
+			SecureMode: options.webSecure,
+		})
+		if err != nil {
+			return fmt.Errorf("connect EasyTier Web client: %w", err)
+		}
+		defer webClient.Close(context.Background())
+	}
 	startManagementSignals(ctx, instance)
 	forwarders, err := startPortForwards(
 		ctx,
@@ -588,17 +600,25 @@ func (forwards *portForwardSet) startUDP(rule portForwardRule) error {
 
 func parseOptions() options {
 	var options options
-	flag.Var(&options.peers, "p", "EasyTier peer URI; may be repeated")
-	flag.Var(
+	bindFlags(flag.CommandLine, &options)
+	flag.Parse()
+	return options
+}
+
+func bindFlags(flags *flag.FlagSet, options *options) {
+	flags.Var(&options.peers, "p", "EasyTier peer URI; may be repeated")
+	flags.Var(
 		&options.portForwards,
 		"port-forward",
 		"tcp://bind/overlay-target or udp://bind/overlay-target; may be repeated",
 	)
-	flag.StringVar(&options.networkName, "network-name", "", "EasyTier network name")
-	flag.StringVar(&options.networkSecret, "network-secret", "", "EasyTier network secret")
-	flag.StringVar(&options.ipv4, "ipv4", "", "fixed EasyTier IPv4 address and prefix")
-	flag.Parse()
-	return options
+	flags.StringVar(&options.networkName, "network-name", "", "EasyTier network name")
+	flags.StringVar(&options.networkSecret, "network-secret", "", "EasyTier network secret")
+	flags.StringVar(&options.ipv4, "ipv4", "", "fixed EasyTier IPv4 address and prefix")
+	flags.StringVar(&options.webEndpoint, "web-endpoint", "", "EasyTier Web config-server endpoint")
+	flags.StringVar(&options.webMachineID, "web-machine-id", "", "stable EasyTier Web machine UUID")
+	flags.StringVar(&options.webHostname, "web-hostname", "", "EasyTier Web machine hostname")
+	flags.BoolVar(&options.webSecure, "web-secure", false, "secure EasyTier Web connection")
 }
 
 type peerList []string
@@ -621,6 +641,10 @@ type options struct {
 	networkName   string
 	networkSecret string
 	ipv4          string
+	webEndpoint   string
+	webMachineID  string
+	webHostname   string
+	webSecure     bool
 }
 
 func (options options) validate() (netip.Prefix, error) {
@@ -632,6 +656,10 @@ func (options options) validate() (netip.Prefix, error) {
 	}
 	if options.networkSecret == "" {
 		return netip.Prefix{}, fmt.Errorf("--network-secret is required")
+	}
+	if strings.TrimSpace(options.webEndpoint) != "" &&
+		strings.TrimSpace(options.webMachineID) == "" {
+		return netip.Prefix{}, fmt.Errorf("--web-machine-id is required with --web-endpoint")
 	}
 	prefix, err := netip.ParsePrefix(options.ipv4)
 	if err != nil {

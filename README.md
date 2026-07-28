@@ -152,6 +152,23 @@ Windows or `utunN` on macOS, assigns the requested address, and sets an MTU of
 from an Administrator terminal on Windows. Closing the command removes the TUN
 interface. The example does not install a default route or enable GSO.
 
+Add Web Client registration with the same command:
+
+```sh
+sudo go run . \
+  -p tcp://198.51.100.10:11010 \
+  --network-name office \
+  --network-secret secret \
+  --ipv4 10.144.0.10/24 \
+  --web-endpoint udp://config.example.com:22020/team-token \
+  --web-machine-id 11111111-2222-4333-8444-555555555555 \
+  --web-hostname edge-gateway \
+  --web-secure
+```
+
+`--web-machine-id` is required when `--web-endpoint` is set and must remain
+stable across restarts. `--web-hostname` defaults to the system hostname.
+
 On Linux and macOS, send `SIGUSR1` to print the current peer list or `SIGUSR2`
 to print the current route list.
 
