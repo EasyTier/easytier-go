@@ -152,23 +152,6 @@ Windows or `utunN` on macOS, assigns the requested address, and sets an MTU of
 from an Administrator terminal on Windows. Closing the command removes the TUN
 interface. The example does not install a default route or enable GSO.
 
-Add Web Client registration with the same command:
-
-```sh
-sudo go run . \
-  -p tcp://198.51.100.10:11010 \
-  --network-name office \
-  --network-secret secret \
-  --ipv4 10.144.0.10/24 \
-  --web-endpoint udp://config.example.com:22020/team-token \
-  --web-machine-id 11111111-2222-4333-8444-555555555555 \
-  --web-hostname edge-gateway \
-  --web-secure
-```
-
-`--web-machine-id` is required when `--web-endpoint` is set and must remain
-stable across restarts. `--web-hostname` defaults to the system hostname.
-
 On Linux and macOS, send `SIGUSR1` to print the current peer list or `SIGUSR2`
 to print the current route list.
 
@@ -189,6 +172,23 @@ For example, run `iperf3 -c 127.0.0.1 -p 5202` for TCP or add
 `-u -b 0 -l 1200` for UDP. iperf3's UDP mode still needs the TCP forward for
 its control connection. UDP forwarding uses one overlay connection per rule;
 replies are sent to the local client that most recently sent a packet.
+
+## Web Client example
+
+The Web Client example registers a Host with an EasyTier Web configuration
+server and lets the server create, delete, and inspect its instances:
+
+```sh
+go run ./examples/web-client \
+  --web-endpoint tcp://config.example.com:22020/team-token \
+  --web-machine-id 11111111-2222-4333-8444-555555555555 \
+  --web-hostname edge-gateway \
+  --web-secure
+```
+
+`--web-machine-id` must remain stable across restarts. `--web-hostname` defaults
+to the system hostname. This example manages Host instances but does not create
+or attach an operating-system TUN interface.
 
 ## Performance compared with native EasyTier
 

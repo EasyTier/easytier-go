@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"flag"
 	"io"
 	"net"
 	"net/netip"
@@ -45,13 +44,6 @@ func TestOptionsValidate(t *testing.T) {
 			wantErr: "--network-secret",
 		},
 		{
-			name: "missing Web machine ID",
-			mutate: func(value *options) {
-				value.webEndpoint = "udp://config.example.com:22020/team"
-			},
-			wantErr: "--web-machine-id",
-		},
-		{
 			name:    "invalid IPv4 prefix",
 			mutate:  func(value *options) { value.ipv4 = "10.144.0.10" },
 			wantErr: "--ipv4",
@@ -81,26 +73,6 @@ func TestOptionsValidate(t *testing.T) {
 				t.Fatalf("validate error = %v, want containing %q", err, test.wantErr)
 			}
 		})
-	}
-}
-
-func TestWebClientFlags(t *testing.T) {
-	flags := flag.NewFlagSet("web-client", flag.ContinueOnError)
-	var options options
-	bindFlags(flags, &options)
-	if err := flags.Parse([]string{
-		"--web-endpoint", "udp://config.example.com:22020/team",
-		"--web-machine-id", "11111111-2222-4333-8444-555555555555",
-		"--web-hostname", "edge-gateway",
-		"--web-secure",
-	}); err != nil {
-		t.Fatalf("parse Web client flags: %v", err)
-	}
-	if options.webEndpoint != "udp://config.example.com:22020/team" ||
-		options.webMachineID != "11111111-2222-4333-8444-555555555555" ||
-		options.webHostname != "edge-gateway" ||
-		!options.webSecure {
-		t.Fatalf("parsed Web client options = %+v", options)
 	}
 }
 
