@@ -2,6 +2,7 @@ package host_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -34,18 +35,16 @@ func TestPublicManagementRPCMethods(t *testing.T) {
 		t.Fatal("ListRoute accepted a nil context")
 	}
 
-	peers, err := instance.ListPeer(ctx)
-	if err != nil {
+	cancelled, cancelQuery := context.WithCancel(ctx)
+	cancelQuery()
+	if _, err := instance.ListPeer(cancelled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("ListPeer with cancelled context error = %v", err)
+	}
+
+	if _, err := instance.ListPeer(context.Background()); err != nil {
 		t.Fatalf("list peers: %v", err)
 	}
-	if peers == nil {
-		t.Fatal("list peers returned a nil response")
-	}
-	routes, err := instance.ListRoute(ctx)
-	if err != nil {
+	if _, err := instance.ListRoute(ctx); err != nil {
 		t.Fatalf("list routes: %v", err)
-	}
-	if routes == nil {
-		t.Fatal("list routes returned a nil response")
 	}
 }

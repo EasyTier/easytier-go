@@ -716,6 +716,70 @@ func (x *RpcRequest) GetTimeoutMs() int32 {
 	return 0
 }
 
+// One transport-neutral RPC invocation submitted through a direct ABI.
+//
+// full_method_name uses the protobuf reflection form:
+// "<package>.<service>.<method>" or "<service>.<method>" for an empty package.
+type DirectRpcRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	FullMethodName string                 `protobuf:"bytes,1,opt,name=full_method_name,json=fullMethodName,proto3" json:"full_method_name,omitempty"`
+	Request        []byte                 `protobuf:"bytes,2,opt,name=request,proto3" json:"request,omitempty"`
+	TimeoutMs      *uint64                `protobuf:"varint,3,opt,name=timeout_ms,json=timeoutMs,proto3,oneof" json:"timeout_ms,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *DirectRpcRequest) Reset() {
+	*x = DirectRpcRequest{}
+	mi := &file_common_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DirectRpcRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DirectRpcRequest) ProtoMessage() {}
+
+func (x *DirectRpcRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_common_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DirectRpcRequest.ProtoReflect.Descriptor instead.
+func (*DirectRpcRequest) Descriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *DirectRpcRequest) GetFullMethodName() string {
+	if x != nil {
+		return x.FullMethodName
+	}
+	return ""
+}
+
+func (x *DirectRpcRequest) GetRequest() []byte {
+	if x != nil {
+		return x.Request
+	}
+	return nil
+}
+
+func (x *DirectRpcRequest) GetTimeoutMs() uint64 {
+	if x != nil && x.TimeoutMs != nil {
+		return *x.TimeoutMs
+	}
+	return 0
+}
+
 type RpcResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Response      []byte                 `protobuf:"bytes,1,opt,name=response,proto3" json:"response,omitempty"`
@@ -727,7 +791,7 @@ type RpcResponse struct {
 
 func (x *RpcResponse) Reset() {
 	*x = RpcResponse{}
-	mi := &file_common_proto_msgTypes[3]
+	mi := &file_common_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -739,7 +803,7 @@ func (x *RpcResponse) String() string {
 func (*RpcResponse) ProtoMessage() {}
 
 func (x *RpcResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[3]
+	mi := &file_common_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -752,7 +816,7 @@ func (x *RpcResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RpcResponse.ProtoReflect.Descriptor instead.
 func (*RpcResponse) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{3}
+	return file_common_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *RpcResponse) GetResponse() []byte {
@@ -789,7 +853,7 @@ type RpcCompressionInfo struct {
 
 func (x *RpcCompressionInfo) Reset() {
 	*x = RpcCompressionInfo{}
-	mi := &file_common_proto_msgTypes[4]
+	mi := &file_common_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -801,7 +865,7 @@ func (x *RpcCompressionInfo) String() string {
 func (*RpcCompressionInfo) ProtoMessage() {}
 
 func (x *RpcCompressionInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[4]
+	mi := &file_common_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -814,7 +878,7 @@ func (x *RpcCompressionInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RpcCompressionInfo.ProtoReflect.Descriptor instead.
 func (*RpcCompressionInfo) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{4}
+	return file_common_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RpcCompressionInfo) GetAlgo() CompressionAlgoPb {
@@ -849,7 +913,7 @@ type RpcPacket struct {
 
 func (x *RpcPacket) Reset() {
 	*x = RpcPacket{}
-	mi := &file_common_proto_msgTypes[5]
+	mi := &file_common_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -861,7 +925,7 @@ func (x *RpcPacket) String() string {
 func (*RpcPacket) ProtoMessage() {}
 
 func (x *RpcPacket) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[5]
+	mi := &file_common_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -874,7 +938,7 @@ func (x *RpcPacket) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RpcPacket.ProtoReflect.Descriptor instead.
 func (*RpcPacket) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{5}
+	return file_common_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *RpcPacket) GetFromPeer() uint32 {
@@ -955,7 +1019,7 @@ type Void struct {
 
 func (x *Void) Reset() {
 	*x = Void{}
-	mi := &file_common_proto_msgTypes[6]
+	mi := &file_common_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -967,7 +1031,7 @@ func (x *Void) String() string {
 func (*Void) ProtoMessage() {}
 
 func (x *Void) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[6]
+	mi := &file_common_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -980,7 +1044,7 @@ func (x *Void) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Void.ProtoReflect.Descriptor instead.
 func (*Void) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{6}
+	return file_common_proto_rawDescGZIP(), []int{7}
 }
 
 type UUID struct {
@@ -995,7 +1059,7 @@ type UUID struct {
 
 func (x *UUID) Reset() {
 	*x = UUID{}
-	mi := &file_common_proto_msgTypes[7]
+	mi := &file_common_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1007,7 +1071,7 @@ func (x *UUID) String() string {
 func (*UUID) ProtoMessage() {}
 
 func (x *UUID) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[7]
+	mi := &file_common_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1020,7 +1084,7 @@ func (x *UUID) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UUID.ProtoReflect.Descriptor instead.
 func (*UUID) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{7}
+	return file_common_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *UUID) GetPart1() uint32 {
@@ -1060,7 +1124,7 @@ type Ipv4Addr struct {
 
 func (x *Ipv4Addr) Reset() {
 	*x = Ipv4Addr{}
-	mi := &file_common_proto_msgTypes[8]
+	mi := &file_common_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1072,7 +1136,7 @@ func (x *Ipv4Addr) String() string {
 func (*Ipv4Addr) ProtoMessage() {}
 
 func (x *Ipv4Addr) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[8]
+	mi := &file_common_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1085,7 +1149,7 @@ func (x *Ipv4Addr) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ipv4Addr.ProtoReflect.Descriptor instead.
 func (*Ipv4Addr) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{8}
+	return file_common_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Ipv4Addr) GetAddr() uint32 {
@@ -1107,7 +1171,7 @@ type Ipv6Addr struct {
 
 func (x *Ipv6Addr) Reset() {
 	*x = Ipv6Addr{}
-	mi := &file_common_proto_msgTypes[9]
+	mi := &file_common_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1119,7 +1183,7 @@ func (x *Ipv6Addr) String() string {
 func (*Ipv6Addr) ProtoMessage() {}
 
 func (x *Ipv6Addr) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[9]
+	mi := &file_common_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1132,7 +1196,7 @@ func (x *Ipv6Addr) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ipv6Addr.ProtoReflect.Descriptor instead.
 func (*Ipv6Addr) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{9}
+	return file_common_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Ipv6Addr) GetPart1() uint32 {
@@ -1176,7 +1240,7 @@ type IpAddr struct {
 
 func (x *IpAddr) Reset() {
 	*x = IpAddr{}
-	mi := &file_common_proto_msgTypes[10]
+	mi := &file_common_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1188,7 +1252,7 @@ func (x *IpAddr) String() string {
 func (*IpAddr) ProtoMessage() {}
 
 func (x *IpAddr) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[10]
+	mi := &file_common_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1201,7 +1265,7 @@ func (x *IpAddr) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IpAddr.ProtoReflect.Descriptor instead.
 func (*IpAddr) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{10}
+	return file_common_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *IpAddr) GetIp() isIpAddr_Ip {
@@ -1255,7 +1319,7 @@ type Ipv4Inet struct {
 
 func (x *Ipv4Inet) Reset() {
 	*x = Ipv4Inet{}
-	mi := &file_common_proto_msgTypes[11]
+	mi := &file_common_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1267,7 +1331,7 @@ func (x *Ipv4Inet) String() string {
 func (*Ipv4Inet) ProtoMessage() {}
 
 func (x *Ipv4Inet) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[11]
+	mi := &file_common_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1280,7 +1344,7 @@ func (x *Ipv4Inet) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ipv4Inet.ProtoReflect.Descriptor instead.
 func (*Ipv4Inet) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{11}
+	return file_common_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Ipv4Inet) GetAddress() *Ipv4Addr {
@@ -1307,7 +1371,7 @@ type Ipv6Inet struct {
 
 func (x *Ipv6Inet) Reset() {
 	*x = Ipv6Inet{}
-	mi := &file_common_proto_msgTypes[12]
+	mi := &file_common_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1319,7 +1383,7 @@ func (x *Ipv6Inet) String() string {
 func (*Ipv6Inet) ProtoMessage() {}
 
 func (x *Ipv6Inet) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[12]
+	mi := &file_common_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1332,7 +1396,7 @@ func (x *Ipv6Inet) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ipv6Inet.ProtoReflect.Descriptor instead.
 func (*Ipv6Inet) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{12}
+	return file_common_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Ipv6Inet) GetAddress() *Ipv6Addr {
@@ -1362,7 +1426,7 @@ type IpInet struct {
 
 func (x *IpInet) Reset() {
 	*x = IpInet{}
-	mi := &file_common_proto_msgTypes[13]
+	mi := &file_common_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1374,7 +1438,7 @@ func (x *IpInet) String() string {
 func (*IpInet) ProtoMessage() {}
 
 func (x *IpInet) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[13]
+	mi := &file_common_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1387,7 +1451,7 @@ func (x *IpInet) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IpInet.ProtoReflect.Descriptor instead.
 func (*IpInet) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{13}
+	return file_common_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *IpInet) GetIp() isIpInet_Ip {
@@ -1440,7 +1504,7 @@ type Url struct {
 
 func (x *Url) Reset() {
 	*x = Url{}
-	mi := &file_common_proto_msgTypes[14]
+	mi := &file_common_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1452,7 +1516,7 @@ func (x *Url) String() string {
 func (*Url) ProtoMessage() {}
 
 func (x *Url) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[14]
+	mi := &file_common_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1465,7 +1529,7 @@ func (x *Url) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Url.ProtoReflect.Descriptor instead.
 func (*Url) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{14}
+	return file_common_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Url) GetUrl() string {
@@ -1489,7 +1553,7 @@ type SocketAddr struct {
 
 func (x *SocketAddr) Reset() {
 	*x = SocketAddr{}
-	mi := &file_common_proto_msgTypes[15]
+	mi := &file_common_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1501,7 +1565,7 @@ func (x *SocketAddr) String() string {
 func (*SocketAddr) ProtoMessage() {}
 
 func (x *SocketAddr) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[15]
+	mi := &file_common_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1514,7 +1578,7 @@ func (x *SocketAddr) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SocketAddr.ProtoReflect.Descriptor instead.
 func (*SocketAddr) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{15}
+	return file_common_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *SocketAddr) GetIp() isSocketAddr_Ip {
@@ -1577,7 +1641,7 @@ type TunnelInfo struct {
 
 func (x *TunnelInfo) Reset() {
 	*x = TunnelInfo{}
-	mi := &file_common_proto_msgTypes[16]
+	mi := &file_common_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1589,7 +1653,7 @@ func (x *TunnelInfo) String() string {
 func (*TunnelInfo) ProtoMessage() {}
 
 func (x *TunnelInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[16]
+	mi := &file_common_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1602,7 +1666,7 @@ func (x *TunnelInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TunnelInfo.ProtoReflect.Descriptor instead.
 func (*TunnelInfo) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{16}
+	return file_common_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *TunnelInfo) GetTunnelType() string {
@@ -1647,7 +1711,7 @@ type StunInfo struct {
 
 func (x *StunInfo) Reset() {
 	*x = StunInfo{}
-	mi := &file_common_proto_msgTypes[17]
+	mi := &file_common_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1659,7 +1723,7 @@ func (x *StunInfo) String() string {
 func (*StunInfo) ProtoMessage() {}
 
 func (x *StunInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[17]
+	mi := &file_common_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1672,7 +1736,7 @@ func (x *StunInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StunInfo.ProtoReflect.Descriptor instead.
 func (*StunInfo) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{17}
+	return file_common_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *StunInfo) GetUdpNatType() NatType {
@@ -1736,7 +1800,7 @@ type PeerFeatureFlag struct {
 
 func (x *PeerFeatureFlag) Reset() {
 	*x = PeerFeatureFlag{}
-	mi := &file_common_proto_msgTypes[18]
+	mi := &file_common_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1748,7 +1812,7 @@ func (x *PeerFeatureFlag) String() string {
 func (*PeerFeatureFlag) ProtoMessage() {}
 
 func (x *PeerFeatureFlag) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[18]
+	mi := &file_common_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1761,7 +1825,7 @@ func (x *PeerFeatureFlag) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerFeatureFlag.ProtoReflect.Descriptor instead.
 func (*PeerFeatureFlag) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{18}
+	return file_common_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *PeerFeatureFlag) GetIsPublicServer() bool {
@@ -1852,7 +1916,7 @@ type PortForwardConfigPb struct {
 
 func (x *PortForwardConfigPb) Reset() {
 	*x = PortForwardConfigPb{}
-	mi := &file_common_proto_msgTypes[19]
+	mi := &file_common_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1864,7 +1928,7 @@ func (x *PortForwardConfigPb) String() string {
 func (*PortForwardConfigPb) ProtoMessage() {}
 
 func (x *PortForwardConfigPb) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[19]
+	mi := &file_common_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1877,7 +1941,7 @@ func (x *PortForwardConfigPb) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardConfigPb.ProtoReflect.Descriptor instead.
 func (*PortForwardConfigPb) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{19}
+	return file_common_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *PortForwardConfigPb) GetBindAddr() *SocketAddr {
@@ -1910,7 +1974,7 @@ type ProxyDstInfo struct {
 
 func (x *ProxyDstInfo) Reset() {
 	*x = ProxyDstInfo{}
-	mi := &file_common_proto_msgTypes[20]
+	mi := &file_common_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1922,7 +1986,7 @@ func (x *ProxyDstInfo) String() string {
 func (*ProxyDstInfo) ProtoMessage() {}
 
 func (x *ProxyDstInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[20]
+	mi := &file_common_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1935,7 +1999,7 @@ func (x *ProxyDstInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProxyDstInfo.ProtoReflect.Descriptor instead.
 func (*ProxyDstInfo) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{20}
+	return file_common_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ProxyDstInfo) GetDstAddr() *SocketAddr {
@@ -1956,7 +2020,7 @@ type LimiterConfig struct {
 
 func (x *LimiterConfig) Reset() {
 	*x = LimiterConfig{}
-	mi := &file_common_proto_msgTypes[21]
+	mi := &file_common_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1968,7 +2032,7 @@ func (x *LimiterConfig) String() string {
 func (*LimiterConfig) ProtoMessage() {}
 
 func (x *LimiterConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[21]
+	mi := &file_common_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1981,7 +2045,7 @@ func (x *LimiterConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LimiterConfig.ProtoReflect.Descriptor instead.
 func (*LimiterConfig) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{21}
+	return file_common_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *LimiterConfig) GetBurstRate() uint64 {
@@ -2018,7 +2082,7 @@ type SecureModeConfig struct {
 
 func (x *SecureModeConfig) Reset() {
 	*x = SecureModeConfig{}
-	mi := &file_common_proto_msgTypes[22]
+	mi := &file_common_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2030,7 +2094,7 @@ func (x *SecureModeConfig) String() string {
 func (*SecureModeConfig) ProtoMessage() {}
 
 func (x *SecureModeConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[22]
+	mi := &file_common_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2043,7 +2107,7 @@ func (x *SecureModeConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecureModeConfig.ProtoReflect.Descriptor instead.
 func (*SecureModeConfig) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{22}
+	return file_common_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *SecureModeConfig) GetEnabled() bool {
@@ -2138,7 +2202,13 @@ const file_common_proto_rawDesc = "" +
 	"descriptor\x12\x18\n" +
 	"\arequest\x18\x02 \x01(\fR\arequest\x12\x1d\n" +
 	"\n" +
-	"timeout_ms\x18\x03 \x01(\x05R\ttimeoutMs\"l\n" +
+	"timeout_ms\x18\x03 \x01(\x05R\ttimeoutMs\"\x89\x01\n" +
+	"\x10DirectRpcRequest\x12(\n" +
+	"\x10full_method_name\x18\x01 \x01(\tR\x0efullMethodName\x12\x18\n" +
+	"\arequest\x18\x02 \x01(\fR\arequest\x12\"\n" +
+	"\n" +
+	"timeout_ms\x18\x03 \x01(\x04H\x00R\ttimeoutMs\x88\x01\x01B\r\n" +
+	"\v_timeout_ms\"l\n" +
 	"\vRpcResponse\x12\x1a\n" +
 	"\bresponse\x18\x01 \x01(\fR\bresponse\x12\"\n" +
 	"\x05error\x18\x02 \x01(\v2\f.error.ErrorR\x05error\x12\x1d\n" +
@@ -2286,7 +2356,7 @@ func file_common_proto_rawDescGZIP() []byte {
 }
 
 var file_common_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_common_proto_goTypes = []any{
 	(CompressionAlgoPb)(0),      // 0: common.CompressionAlgoPb
 	(NatType)(0),                // 1: common.NatType
@@ -2294,53 +2364,54 @@ var file_common_proto_goTypes = []any{
 	(*FlagsInConfig)(nil),       // 3: common.FlagsInConfig
 	(*RpcDescriptor)(nil),       // 4: common.RpcDescriptor
 	(*RpcRequest)(nil),          // 5: common.RpcRequest
-	(*RpcResponse)(nil),         // 6: common.RpcResponse
-	(*RpcCompressionInfo)(nil),  // 7: common.RpcCompressionInfo
-	(*RpcPacket)(nil),           // 8: common.RpcPacket
-	(*Void)(nil),                // 9: common.Void
-	(*UUID)(nil),                // 10: common.UUID
-	(*Ipv4Addr)(nil),            // 11: common.Ipv4Addr
-	(*Ipv6Addr)(nil),            // 12: common.Ipv6Addr
-	(*IpAddr)(nil),              // 13: common.IpAddr
-	(*Ipv4Inet)(nil),            // 14: common.Ipv4Inet
-	(*Ipv6Inet)(nil),            // 15: common.Ipv6Inet
-	(*IpInet)(nil),              // 16: common.IpInet
-	(*Url)(nil),                 // 17: common.Url
-	(*SocketAddr)(nil),          // 18: common.SocketAddr
-	(*TunnelInfo)(nil),          // 19: common.TunnelInfo
-	(*StunInfo)(nil),            // 20: common.StunInfo
-	(*PeerFeatureFlag)(nil),     // 21: common.PeerFeatureFlag
-	(*PortForwardConfigPb)(nil), // 22: common.PortForwardConfigPb
-	(*ProxyDstInfo)(nil),        // 23: common.ProxyDstInfo
-	(*LimiterConfig)(nil),       // 24: common.LimiterConfig
-	(*SecureModeConfig)(nil),    // 25: common.SecureModeConfig
-	(*error1.Error)(nil),        // 26: error.Error
+	(*DirectRpcRequest)(nil),    // 6: common.DirectRpcRequest
+	(*RpcResponse)(nil),         // 7: common.RpcResponse
+	(*RpcCompressionInfo)(nil),  // 8: common.RpcCompressionInfo
+	(*RpcPacket)(nil),           // 9: common.RpcPacket
+	(*Void)(nil),                // 10: common.Void
+	(*UUID)(nil),                // 11: common.UUID
+	(*Ipv4Addr)(nil),            // 12: common.Ipv4Addr
+	(*Ipv6Addr)(nil),            // 13: common.Ipv6Addr
+	(*IpAddr)(nil),              // 14: common.IpAddr
+	(*Ipv4Inet)(nil),            // 15: common.Ipv4Inet
+	(*Ipv6Inet)(nil),            // 16: common.Ipv6Inet
+	(*IpInet)(nil),              // 17: common.IpInet
+	(*Url)(nil),                 // 18: common.Url
+	(*SocketAddr)(nil),          // 19: common.SocketAddr
+	(*TunnelInfo)(nil),          // 20: common.TunnelInfo
+	(*StunInfo)(nil),            // 21: common.StunInfo
+	(*PeerFeatureFlag)(nil),     // 22: common.PeerFeatureFlag
+	(*PortForwardConfigPb)(nil), // 23: common.PortForwardConfigPb
+	(*ProxyDstInfo)(nil),        // 24: common.ProxyDstInfo
+	(*LimiterConfig)(nil),       // 25: common.LimiterConfig
+	(*SecureModeConfig)(nil),    // 26: common.SecureModeConfig
+	(*error1.Error)(nil),        // 27: error.Error
 }
 var file_common_proto_depIdxs = []int32{
 	0,  // 0: common.FlagsInConfig.data_compress_algo:type_name -> common.CompressionAlgoPb
 	4,  // 1: common.RpcRequest.descriptor:type_name -> common.RpcDescriptor
-	26, // 2: common.RpcResponse.error:type_name -> error.Error
+	27, // 2: common.RpcResponse.error:type_name -> error.Error
 	0,  // 3: common.RpcCompressionInfo.algo:type_name -> common.CompressionAlgoPb
 	0,  // 4: common.RpcCompressionInfo.accepted_algo:type_name -> common.CompressionAlgoPb
 	4,  // 5: common.RpcPacket.descriptor:type_name -> common.RpcDescriptor
-	7,  // 6: common.RpcPacket.compression_info:type_name -> common.RpcCompressionInfo
-	11, // 7: common.IpAddr.ipv4:type_name -> common.Ipv4Addr
-	12, // 8: common.IpAddr.ipv6:type_name -> common.Ipv6Addr
-	11, // 9: common.Ipv4Inet.address:type_name -> common.Ipv4Addr
-	12, // 10: common.Ipv6Inet.address:type_name -> common.Ipv6Addr
-	14, // 11: common.IpInet.ipv4:type_name -> common.Ipv4Inet
-	15, // 12: common.IpInet.ipv6:type_name -> common.Ipv6Inet
-	11, // 13: common.SocketAddr.ipv4:type_name -> common.Ipv4Addr
-	12, // 14: common.SocketAddr.ipv6:type_name -> common.Ipv6Addr
-	17, // 15: common.TunnelInfo.local_addr:type_name -> common.Url
-	17, // 16: common.TunnelInfo.remote_addr:type_name -> common.Url
-	17, // 17: common.TunnelInfo.resolved_remote_addr:type_name -> common.Url
+	8,  // 6: common.RpcPacket.compression_info:type_name -> common.RpcCompressionInfo
+	12, // 7: common.IpAddr.ipv4:type_name -> common.Ipv4Addr
+	13, // 8: common.IpAddr.ipv6:type_name -> common.Ipv6Addr
+	12, // 9: common.Ipv4Inet.address:type_name -> common.Ipv4Addr
+	13, // 10: common.Ipv6Inet.address:type_name -> common.Ipv6Addr
+	15, // 11: common.IpInet.ipv4:type_name -> common.Ipv4Inet
+	16, // 12: common.IpInet.ipv6:type_name -> common.Ipv6Inet
+	12, // 13: common.SocketAddr.ipv4:type_name -> common.Ipv4Addr
+	13, // 14: common.SocketAddr.ipv6:type_name -> common.Ipv6Addr
+	18, // 15: common.TunnelInfo.local_addr:type_name -> common.Url
+	18, // 16: common.TunnelInfo.remote_addr:type_name -> common.Url
+	18, // 17: common.TunnelInfo.resolved_remote_addr:type_name -> common.Url
 	1,  // 18: common.StunInfo.udp_nat_type:type_name -> common.NatType
 	1,  // 19: common.StunInfo.tcp_nat_type:type_name -> common.NatType
-	18, // 20: common.PortForwardConfigPb.bind_addr:type_name -> common.SocketAddr
-	18, // 21: common.PortForwardConfigPb.dst_addr:type_name -> common.SocketAddr
+	19, // 20: common.PortForwardConfigPb.bind_addr:type_name -> common.SocketAddr
+	19, // 21: common.PortForwardConfigPb.dst_addr:type_name -> common.SocketAddr
 	2,  // 22: common.PortForwardConfigPb.socket_type:type_name -> common.SocketType
-	18, // 23: common.ProxyDstInfo.dst_addr:type_name -> common.SocketAddr
+	19, // 23: common.ProxyDstInfo.dst_addr:type_name -> common.SocketAddr
 	24, // [24:24] is the sub-list for method output_type
 	24, // [24:24] is the sub-list for method input_type
 	24, // [24:24] is the sub-list for extension type_name
@@ -2354,27 +2425,28 @@ func file_common_proto_init() {
 		return
 	}
 	file_common_proto_msgTypes[0].OneofWrappers = []any{}
-	file_common_proto_msgTypes[10].OneofWrappers = []any{
+	file_common_proto_msgTypes[3].OneofWrappers = []any{}
+	file_common_proto_msgTypes[11].OneofWrappers = []any{
 		(*IpAddr_Ipv4)(nil),
 		(*IpAddr_Ipv6)(nil),
 	}
-	file_common_proto_msgTypes[13].OneofWrappers = []any{
+	file_common_proto_msgTypes[14].OneofWrappers = []any{
 		(*IpInet_Ipv4)(nil),
 		(*IpInet_Ipv6)(nil),
 	}
-	file_common_proto_msgTypes[15].OneofWrappers = []any{
+	file_common_proto_msgTypes[16].OneofWrappers = []any{
 		(*SocketAddr_Ipv4)(nil),
 		(*SocketAddr_Ipv6)(nil),
 	}
-	file_common_proto_msgTypes[21].OneofWrappers = []any{}
 	file_common_proto_msgTypes[22].OneofWrappers = []any{}
+	file_common_proto_msgTypes[23].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_proto_rawDesc), len(file_common_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   23,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

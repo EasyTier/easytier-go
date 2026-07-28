@@ -3,11 +3,20 @@
 set -euo pipefail
 
 repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-easytier_source="${EASYTIER_SOURCE:-"${repository_root}/../EasyTier"}"
+easytier_source="${1:-${EASYTIER_SOURCE:-"${repository_root}/../EasyTier"}}"
 proto_root="${easytier_source}/easytier-proto/proto"
 
 if [[ ! -f "${proto_root}/api_instance.proto" ]]; then
     echo "EasyTier proto source not found at ${proto_root}" >&2
+    exit 1
+fi
+
+if [[ "$(protoc --version)" != "libprotoc 35.1" ]]; then
+    echo "protoc 35.1 is required" >&2
+    exit 1
+fi
+if [[ "$(protoc-gen-go --version)" != "protoc-gen-go v1.36.11" ]]; then
+    echo "protoc-gen-go v1.36.11 is required" >&2
     exit 1
 fi
 

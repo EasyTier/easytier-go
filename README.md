@@ -56,10 +56,11 @@ packets, err := instance.ListenPacket("udp4", ":5353")
 ```
 
 `Instance.ListPeer` and `Instance.ListRoute` call the embedded core's existing
-instance-scoped management RPCs and return generated protobuf responses. The
-protobuf envelope and operation lifecycle stay internal to the host; callers
-never construct wire bytes or a separate RPC client. Cancelling the context
-frees the pending guest operation.
+instance-scoped management RPCs and return peer and route slices directly.
+Their element types reuse the generated EasyTier protobuf models, while the
+request and response envelopes stay internal to the host. Callers never
+construct wire bytes or a separate RPC client. Cancelling the context frees
+the pending guest operation.
 
 `InstanceConfigBuilder` exposes the instance settings supported by this host:
 network identity, hostname, virtual IPv4 address, peers and listeners, IPv4 and
@@ -245,9 +246,10 @@ changes block generation; unrelated untracked files do not.
 `corehost.CoreInfo()` exposes that provenance without exposing the artifact
 bytes.
 
-The same `EASYTIER_SOURCE` is used to regenerate the Go protobuf bindings for
-the management responses. This step requires `protoc` and `protoc-gen-go` on
-`PATH`.
+The same generator rebuilds the Go protobuf bindings from that exact clean
+EasyTier commit and records their source commit and schema SHA-256. Host
+creation rejects an artifact/binding commit mismatch. Generation requires
+`protoc` 35.1 and `protoc-gen-go` 1.36.11 on `PATH`.
 
 The test-only socket probe is retained from
 [EasyTier commit 6a3d15f](https://github.com/EasyTier/EasyTier/tree/6a3d15f8758eed759d55401ff4ed7c47021b0819/tools/wasi-socket-poc/guest);

@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	RPCABIVersion = 1
+	RPCABIVersion = 2
 
 	rpcStatusPending    int32 = -6
 	maxRPCMessageBytes        = 16 * 1024 * 1024

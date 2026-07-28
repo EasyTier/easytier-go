@@ -15,6 +15,7 @@ import (
 	corehost "github.com/EasyTier/easytier-go-host"
 	"github.com/EasyTier/easytier-go-host/platform"
 	"github.com/EasyTier/easytier-go-host/platform/netstd"
+	hostproto "github.com/EasyTier/easytier-go-host/proto"
 )
 
 func TestPublicLifecycleDoesNotExposeWazero(t *testing.T) {
@@ -121,7 +122,7 @@ func TestPublicFacadeConnectsTwoCoresAndExchangesPacket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list connected peers: %v", err)
 	}
-	if len(peers.PeerInfos) == 0 {
+	if len(peers) == 0 {
 		t.Fatal("connected peer list is empty")
 	}
 
@@ -169,6 +170,16 @@ func TestEmbeddedCoreInfoIsPublicWithoutArtifactBytes(t *testing.T) {
 	}
 	if len(info.SHA256) != 64 {
 		t.Fatalf("EasyTier SHA-256 = %q", info.SHA256)
+	}
+	if info.EasyTierCommit != hostproto.EasyTierCommit {
+		t.Fatalf(
+			"EasyTier artifact commit %q != protobuf commit %q",
+			info.EasyTierCommit,
+			hostproto.EasyTierCommit,
+		)
+	}
+	if len(hostproto.SchemaSHA256) != 64 {
+		t.Fatalf("protobuf schema SHA-256 = %q", hostproto.SchemaSHA256)
 	}
 }
 

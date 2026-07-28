@@ -12,6 +12,7 @@ import (
 	"github.com/EasyTier/easytier-go-host/internal/engine"
 	"github.com/EasyTier/easytier-go-host/platform"
 	"github.com/EasyTier/easytier-go-host/platform/netstd"
+	hostproto "github.com/EasyTier/easytier-go-host/proto"
 )
 
 type State int32
@@ -48,6 +49,13 @@ type Instance struct {
 func New(ctx context.Context, options Options) (*Host, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("create EasyTier host with nil context")
+	}
+	if artifact.Commit != hostproto.EasyTierCommit {
+		return nil, fmt.Errorf(
+			"embedded EasyTier commit %s does not match protobuf commit %s",
+			artifact.Commit,
+			hostproto.EasyTierCommit,
+		)
 	}
 	select {
 	case <-ctx.Done():

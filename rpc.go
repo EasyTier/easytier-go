@@ -8,52 +8,52 @@ import (
 	apiinstance "github.com/EasyTier/easytier-go-host/proto/api/instance"
 	"github.com/EasyTier/easytier-go-host/proto/common"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-const defaultRPCTimeout = 5 * time.Second
-
-var (
-	listPeerRPCMethod  = peerManageRPCMethod("ListPeer")
-	listRouteRPCMethod = peerManageRPCMethod("ListRoute")
+const (
+	listPeerRPCMethod  = "api.instance.PeerManageRpc.ListPeer"
+	listRouteRPCMethod = "api.instance.PeerManageRpc.ListRoute"
 )
+
+// PeerInfo describes one peer visible to an EasyTier instance.
+type PeerInfo = apiinstance.PeerInfo
+
+// Route describes one route visible to an EasyTier instance.
+type Route = apiinstance.Route
 
 // ListPeer returns the peers visible to this EasyTier instance.
 func (instance *Instance) ListPeer(
 	ctx context.Context,
-) (*apiinstance.ListPeerResponse, error) {
+) ([]*PeerInfo, error) {
 	response := new(apiinstance.ListPeerResponse)
 	if err := instance.callRPC(
 		ctx,
 		listPeerRPCMethod,
-		new(apiinstance.ListPeerRequest),
 		response,
 	); err != nil {
 		return nil, err
 	}
-	return response, nil
+	return response.PeerInfos, nil
 }
 
 // ListRoute returns the routing table visible to this EasyTier instance.
 func (instance *Instance) ListRoute(
 	ctx context.Context,
-) (*apiinstance.ListRouteResponse, error) {
+) ([]*Route, error) {
 	response := new(apiinstance.ListRouteResponse)
 	if err := instance.callRPC(
 		ctx,
 		listRouteRPCMethod,
-		new(apiinstance.ListRouteRequest),
 		response,
 	); err != nil {
 		return nil, err
 	}
-	return response, nil
+	return response.Routes, nil
 }
 
 func (instance *Instance) callRPC(
 	ctx context.Context,
-	method protoreflect.MethodDescriptor,
-	request proto.Message,
+	fullMethodName string,
 	response proto.Message,
 ) error {
 	if instance == nil || instance.engine == nil {
@@ -62,83 +62,52 @@ func (instance *Instance) callRPC(
 	if ctx == nil {
 		return fmt.Errorf("call EasyTier RPC with nil context")
 	}
-	timeoutMillis, err := rpcTimeoutMillis(ctx)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	requestPayload, err := proto.Marshal(request)
-	if err != nil {
-		return fmt.Errorf("encode EasyTier RPC %s request: %w", method.FullName(), err)
+	var timeoutMillis *uint64
+	if deadline, exists := ctx.Deadline(); exists {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return context.DeadlineExceeded
+		}
+		millis := uint64(remaining / time.Millisecond)
+		if remaining%time.Millisecond != 0 {
+			millis++
+		}
+		timeoutMillis = &millis
 	}
-	service := method.Parent().(protoreflect.ServiceDescriptor)
-	// EasyTier's RPC generator uses the service name for both descriptor
-	// names and numbers methods from one rather than protobuf's zero index.
-	encodedRequest, err := proto.Marshal(&common.RpcRequest{
-		Descriptor_: &common.RpcDescriptor{
-			ProtoName:   string(service.Name()),
-			ServiceName: string(service.Name()),
-			MethodIndex: uint32(method.Index() + 1),
-		},
-		Request:   requestPayload,
-		TimeoutMs: timeoutMillis,
+	encodedRequest, err := proto.Marshal(&common.DirectRpcRequest{
+		FullMethodName: fullMethodName,
+		TimeoutMs:      timeoutMillis,
 	})
 	if err != nil {
 		return fmt.Errorf("encode EasyTier RPC envelope: %w", err)
 	}
 	encodedResponse, err := instance.engine.RPC(ctx, encodedRequest)
+	if contextErr := ctx.Err(); contextErr != nil {
+		return contextErr
+	}
 	if err != nil {
 		return err
 	}
 	var envelope common.RpcResponse
 	if err := proto.Unmarshal(encodedResponse, &envelope); err != nil {
-		return fmt.Errorf("decode EasyTier RPC %s response: %w", method.FullName(), err)
+		return fmt.Errorf("decode EasyTier RPC %s response: %w", fullMethodName, err)
 	}
 	if envelope.Error != nil {
 		return fmt.Errorf(
 			"EasyTier RPC %s failed: %s",
-			method.FullName(),
+			fullMethodName,
 			envelope.Error,
 		)
 	}
 	if err := proto.Unmarshal(envelope.Response, response); err != nil {
 		return fmt.Errorf(
 			"decode EasyTier RPC %s payload: %w",
-			method.FullName(),
+			fullMethodName,
 			err,
 		)
 	}
 	return nil
-}
-
-func peerManageRPCMethod(name protoreflect.Name) protoreflect.MethodDescriptor {
-	service := apiinstance.File_api_instance_proto.Services().ByName("PeerManageRpc")
-	if service == nil {
-		panic("generated EasyTier proto has no PeerManageRpc service")
-	}
-	method := service.Methods().ByName(name)
-	if method == nil {
-		panic("generated EasyTier proto has no PeerManageRpc." + string(name))
-	}
-	return method
-}
-
-func rpcTimeoutMillis(ctx context.Context) (int32, error) {
-	if err := ctx.Err(); err != nil {
-		return 0, err
-	}
-	timeout := defaultRPCTimeout
-	if deadline, exists := ctx.Deadline(); exists {
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return 0, context.DeadlineExceeded
-		}
-		if remaining < timeout {
-			timeout = remaining
-		}
-	}
-	millis := timeout / time.Millisecond
-	if timeout%time.Millisecond != 0 {
-		millis++
-	}
-	return int32(millis), nil
 }
