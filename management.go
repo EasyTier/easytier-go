@@ -396,11 +396,15 @@ func (entry *managedInstance) runningInfo(
 	if err != nil {
 		return nil, err
 	}
+	nodeResponse, err := entry.instance.showNodeInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
 	foreign, err := entry.instance.foreignNetworkSummary(ctx)
 	if err != nil {
 		return nil, err
 	}
-	node := peers.MyInfo
+	node := nodeResponse.NodeInfo
 	listeners := make([]*common.Url, len(node.GetListeners()))
 	for index, listener := range node.GetListeners() {
 		listeners[index] = &common.Url{Url: listener}

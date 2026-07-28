@@ -13,6 +13,7 @@ import (
 const (
 	listPeerRPCMethod              = "api.instance.PeerManageRpc.ListPeer"
 	listRouteRPCMethod             = "api.instance.PeerManageRpc.ListRoute"
+	showNodeInfoRPCMethod          = "api.instance.PeerManageRpc.ShowNodeInfo"
 	foreignNetworkSummaryRPCMethod = "api.instance.PeerManageRpc.GetForeignNetworkSummary"
 )
 
@@ -59,6 +60,16 @@ func (instance *Instance) listRouteResponse(
 ) (*apiinstance.ListRouteResponse, error) {
 	response := new(apiinstance.ListRouteResponse)
 	if err := instance.callRPC(ctx, listRouteRPCMethod, response); err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+func (instance *Instance) showNodeInfo(
+	ctx context.Context,
+) (*apiinstance.ShowNodeInfoResponse, error) {
+	response := new(apiinstance.ShowNodeInfoResponse)
+	if err := instance.callRPC(ctx, showNodeInfoRPCMethod, response); err != nil {
 		return nil, err
 	}
 	return response, nil

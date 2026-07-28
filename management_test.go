@@ -160,6 +160,10 @@ func TestWebManagementRunsCollectsAndDeletesInstance(t *testing.T) {
 	if info == nil || !info.Running || info.MyNodeInfo == nil {
 		t.Fatalf("managed instance status = %v, want running node info", info)
 	}
+	if info.MyNodeInfo.Hostname != "managed-host" ||
+		info.MyNodeInfo.PeerId == 0 {
+		t.Fatalf("managed node info = %v, want live node identity", info.MyNodeInfo)
+	}
 
 	managedConfig := callManagement(
 		t,
