@@ -24,6 +24,8 @@ var managementProtoFiles = []string{
 	"acl.proto",
 	"peer_rpc.proto",
 	"api_instance.proto",
+	"api_manage.proto",
+	"web.proto",
 }
 
 func main() {

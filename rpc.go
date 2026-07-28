@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	listPeerRPCMethod  = "api.instance.PeerManageRpc.ListPeer"
-	listRouteRPCMethod = "api.instance.PeerManageRpc.ListRoute"
+	listPeerRPCMethod              = "api.instance.PeerManageRpc.ListPeer"
+	listRouteRPCMethod             = "api.instance.PeerManageRpc.ListRoute"
+	foreignNetworkSummaryRPCMethod = "api.instance.PeerManageRpc.GetForeignNetworkSummary"
 )
 
 // PeerInfo describes one peer visible to an EasyTier instance.
@@ -25,12 +26,8 @@ type Route = apiinstance.Route
 func (instance *Instance) ListPeer(
 	ctx context.Context,
 ) ([]*PeerInfo, error) {
-	response := new(apiinstance.ListPeerResponse)
-	if err := instance.callRPC(
-		ctx,
-		listPeerRPCMethod,
-		response,
-	); err != nil {
+	response, err := instance.listPeerResponse(ctx)
+	if err != nil {
 		return nil, err
 	}
 	return response.PeerInfos, nil
@@ -40,15 +37,45 @@ func (instance *Instance) ListPeer(
 func (instance *Instance) ListRoute(
 	ctx context.Context,
 ) ([]*Route, error) {
+	response, err := instance.listRouteResponse(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return response.Routes, nil
+}
+
+func (instance *Instance) listPeerResponse(
+	ctx context.Context,
+) (*apiinstance.ListPeerResponse, error) {
+	response := new(apiinstance.ListPeerResponse)
+	if err := instance.callRPC(ctx, listPeerRPCMethod, response); err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+func (instance *Instance) listRouteResponse(
+	ctx context.Context,
+) (*apiinstance.ListRouteResponse, error) {
 	response := new(apiinstance.ListRouteResponse)
+	if err := instance.callRPC(ctx, listRouteRPCMethod, response); err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+func (instance *Instance) foreignNetworkSummary(
+	ctx context.Context,
+) (*apiinstance.GetForeignNetworkSummaryResponse, error) {
+	response := new(apiinstance.GetForeignNetworkSummaryResponse)
 	if err := instance.callRPC(
 		ctx,
-		listRouteRPCMethod,
+		foreignNetworkSummaryRPCMethod,
 		response,
 	); err != nil {
 		return nil, err
 	}
-	return response.Routes, nil
+	return response, nil
 }
 
 func (instance *Instance) callRPC(

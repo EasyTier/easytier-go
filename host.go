@@ -13,6 +13,7 @@ import (
 	"github.com/EasyTier/easytier-go-host/platform"
 	"github.com/EasyTier/easytier-go-host/platform/netstd"
 	hostproto "github.com/EasyTier/easytier-go-host/proto"
+	"github.com/EasyTier/easytier-go-host/proto/api/manage"
 )
 
 type State int32
@@ -39,11 +40,14 @@ type EmbeddedCoreInfo struct {
 type Event = engine.Event
 
 type Host struct {
-	engine *engine.Host
+	engine  *engine.Host
+	manager *instanceManager
 }
 
 type Instance struct {
-	engine *engine.Instance
+	engine  *engine.Instance
+	id      string
+	manager *instanceManager
 }
 
 func New(ctx context.Context, options Options) (*Host, error) {
@@ -62,17 +66,21 @@ func New(ctx context.Context, options Options) (*Host, error) {
 		return nil, ctx.Err()
 	default:
 	}
+	manager := newInstanceManager()
 	runtime, err := engine.NewHost(
 		ctx,
 		engine.Options{
 			Services:            mergeServices(options.Platform),
 			PacketQueueCapacity: options.PacketQueueCapacity,
+			Management:          manager.handle,
 		},
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &Host{engine: runtime}, nil
+	host := &Host{engine: runtime, manager: manager}
+	manager.host = host
+	return host, nil
 }
 
 func CoreInfo() EmbeddedCoreInfo {
@@ -94,11 +102,46 @@ func (host *Host) CreateInstance(
 	if err != nil {
 		return nil, err
 	}
-	runtime, err := host.engine.CreateInstance(ctx, configTOML)
+	id, idString, err := newInstanceUUID()
 	if err != nil {
 		return nil, err
 	}
-	return &Instance{engine: runtime}, nil
+	runtime, err := host.engine.CreateInstance(
+		ctx,
+		bindInstanceIdentity(configTOML, idString, config.document.networkName),
+	)
+	if err != nil {
+		return nil, err
+	}
+	instance := &Instance{
+		engine:  runtime,
+		id:      idString,
+		manager: host.manager,
+	}
+	if err := host.manager.register(&managedInstance{
+		id:       id,
+		instance: instance,
+		owner:    instanceOwnerApplication,
+		source:   manage.ConfigSource_ConfigSourceUser,
+		name:     config.document.networkName,
+	}); err != nil {
+		_ = runtime.Close(context.WithoutCancel(ctx))
+		return nil, err
+	}
+	return instance, nil
+}
+
+// Instances returns a stable snapshot of all application- and Web-owned instances.
+func (host *Host) Instances() []*Instance {
+	if host == nil || host.manager == nil {
+		return nil
+	}
+	entries := host.manager.snapshot()
+	instances := make([]*Instance, len(entries))
+	for index, entry := range entries {
+		instances[index] = entry.instance
+	}
+	return instances
 }
 
 func (host *Host) Close(ctx context.Context) error {
@@ -108,7 +151,11 @@ func (host *Host) Close(ctx context.Context) error {
 	if ctx == nil {
 		return fmt.Errorf("close EasyTier host with nil context")
 	}
-	return host.engine.Close(ctx)
+	err := host.engine.Close(ctx)
+	if ctx.Err() == nil {
+		host.manager.clear()
+	}
+	return err
 }
 
 func (instance *Instance) Start(ctx context.Context) error {
@@ -263,11 +310,23 @@ func (instance *Instance) State() State {
 	return mapState(instance.engine.State())
 }
 
+// ID returns the instance's stable UUID.
+func (instance *Instance) ID() string {
+	if instance == nil {
+		return ""
+	}
+	return instance.id
+}
+
 func (instance *Instance) Close(ctx context.Context) error {
 	if instance == nil || instance.engine == nil {
 		return nil
 	}
-	return instance.engine.Close(ctx)
+	err := instance.engine.Close(ctx)
+	if ctx != nil && ctx.Err() == nil && instance.manager != nil {
+		instance.manager.remove(instance)
+	}
+	return err
 }
 
 func mergeServices(configured platform.Services) platform.Services {

@@ -55,6 +55,41 @@ connection, err := instance.Dial(ctx, "tcp4", "10.144.0.2:8080")
 packets, err := instance.ListenPacket("udp4", ":5353")
 ```
 
+### Web Client management
+
+A host can also connect to an EasyTier Web configuration server. The embedded
+Rust WebClient retains the config-server protocol, heartbeat, reconnect, and
+secure-tunnel behavior; Go owns the resulting process-level instances:
+
+```go
+webClient, err := host.ConnectWebClient(ctx, corehost.WebClientOptions{
+    Endpoint:   "udp://config.example.com:22020/team-token",
+    MachineID:  "11111111-2222-4333-8444-555555555555",
+    Hostname:   "edge-gateway",
+    SecureMode: true,
+})
+if err != nil {
+    return err
+}
+defer webClient.Close(ctx)
+
+for _, instance := range host.Instances() {
+    log.Printf("%s: %v", instance.ID(), instance.State())
+}
+```
+
+`MachineID` must be a stable UUID persisted by the application. `Endpoint`
+accepts `tcp://`, `udp://`, or the same shorthand token understood by native
+EasyTier. WebSocket transports are not part of this initial host integration.
+One WebClient may run per `Host`.
+
+Web-created instances support the complete `WebClientService` lifecycle and
+status surface. Instances created through `Host.CreateInstance` are included
+in heartbeats and status listings, but are reported as read-only and cannot be
+overwritten, retained away, or deleted by the Web server. `Host.Instances`
+returns both ownership classes; Web-created instances use the same `Instance`
+data-plane and management APIs as application-created instances.
+
 `Instance.ListPeer` and `Instance.ListRoute` call the embedded core's existing
 instance-scoped management RPCs and return peer and route slices directly.
 Their element types reuse the generated EasyTier protobuf models, while the

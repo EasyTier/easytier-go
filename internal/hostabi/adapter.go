@@ -127,6 +127,8 @@ func (adapter *Adapter) Instantiate(ctx context.Context, runtime wazero.Runtime)
 		NewFunctionBuilder().WithFunc(adapter.takeDNSSRV).Export("take_dns_srv").
 		NewFunctionBuilder().WithFunc(adapter.startLocalAddrForRemote).Export("start_local_addr_for_remote").
 		NewFunctionBuilder().WithFunc(adapter.takeLocalAddrForRemote).Export("take_local_addr_for_remote").
+		NewFunctionBuilder().WithFunc(adapter.startManagement).Export("start_management_call").
+		NewFunctionBuilder().WithFunc(adapter.takeManagement).Export("take_management_call").
 		NewFunctionBuilder().
 		WithGoModuleFunction(
 			adapter.tryPacketWriteFunction(),

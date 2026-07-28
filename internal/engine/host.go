@@ -24,6 +24,7 @@ const maximumPacketIngressBatch = 32
 type Options struct {
 	Services            platform.Services
 	PacketQueueCapacity int
+	Management          reactor.ManagementHandler
 }
 
 type Host struct {
@@ -40,6 +41,7 @@ type Host struct {
 	mu        sync.Mutex
 	closed    bool
 	instances map[*Instance]struct{}
+	webClient *WebClient
 	closeOnce sync.Once
 	closeDone chan struct{}
 	closeErr  error
@@ -82,7 +84,10 @@ func NewHost(ctx context.Context, options Options) (_ *Host, err error) {
 	if _, err = wasi_snapshot_preview1.Instantiate(ctx, runtime); err != nil {
 		return nil, fmt.Errorf("instantiate WASI preview1: %w", err)
 	}
-	hostReactor = reactor.New(lifetime, reactor.Options{Services: options.Services})
+	hostReactor = reactor.New(lifetime, reactor.Options{
+		Services:   options.Services,
+		Management: options.Management,
+	})
 	adapter, err := hostabi.New(hostReactor)
 	if err != nil {
 		return nil, err
@@ -147,7 +152,9 @@ func (host *Host) CreateInstance(
 		return nil, fmt.Errorf("register EasyTier packet sink: %w", err)
 	}
 	events := make(chan Event, instanceEventQueueCapacity)
+	journal := newEventJournal()
 	eventSink, err := host.reactor.RegisterEventSink(func(kind, message string) bool {
+		journal.add(kind, message)
 		select {
 		case events <- Event{Kind: kind, Message: message}:
 			return true
@@ -185,6 +192,7 @@ func (host *Host) CreateInstance(
 		packetSink:        packetSink,
 		eventSink:         eventSink,
 		events:            events,
+		journal:           journal,
 		commands:          make(chan command, maximumPacketIngressBatch),
 		dataPlaneCommands: make(chan dataPlaneCommand),
 		rpcCommands:       make(chan rpcCommand),
@@ -216,12 +224,13 @@ func (host *Host) Close(ctx context.Context) error {
 	host.closeOnce.Do(func() {
 		host.mu.Lock()
 		host.closed = true
+		webClient := host.webClient
 		instances := make([]*Instance, 0, len(host.instances))
 		for instance := range host.instances {
 			instances = append(instances, instance)
 		}
 		host.mu.Unlock()
-		go host.shutdown(instances)
+		go host.shutdown(webClient, instances)
 	})
 	select {
 	case <-host.closeDone:
@@ -234,8 +243,13 @@ func (host *Host) Close(ctx context.Context) error {
 	}
 }
 
-func (host *Host) shutdown(instances []*Instance) {
+func (host *Host) shutdown(webClient *WebClient, instances []*Instance) {
 	var closeErrors []error
+	if webClient != nil {
+		if err := webClient.Close(host.ctx); err != nil {
+			closeErrors = append(closeErrors, err)
+		}
+	}
 	for _, instance := range instances {
 		if err := instance.Close(host.ctx); err != nil {
 			closeErrors = append(closeErrors, err)
@@ -262,6 +276,12 @@ func (host *Host) broadcastCompletions() {
 		select {
 		case <-host.reactor.Completions():
 			host.mu.Lock()
+			if host.webClient != nil {
+				select {
+				case host.webClient.completions <- struct{}{}:
+				default:
+				}
+			}
 			for instance := range host.instances {
 				select {
 				case instance.completions <- struct{}{}:
@@ -273,6 +293,14 @@ func (host *Host) broadcastCompletions() {
 			return
 		}
 	}
+}
+
+func (host *Host) removeWebClient(client *WebClient) {
+	host.mu.Lock()
+	if host.webClient == client {
+		host.webClient = nil
+	}
+	host.mu.Unlock()
 }
 
 func (host *Host) removeInstance(instance *Instance) {

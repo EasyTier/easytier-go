@@ -47,6 +47,34 @@ type Event struct {
 
 const instanceEventQueueCapacity = 256
 
+type eventJournal struct {
+	mu     sync.Mutex
+	events []string
+}
+
+func newEventJournal() *eventJournal {
+	return &eventJournal{events: make([]string, 0, instanceEventQueueCapacity)}
+}
+
+func (journal *eventJournal) add(kind, message string) {
+	if message == "" {
+		message = kind
+	}
+	journal.mu.Lock()
+	if len(journal.events) == cap(journal.events) {
+		copy(journal.events, journal.events[1:])
+		journal.events = journal.events[:len(journal.events)-1]
+	}
+	journal.events = append(journal.events, message)
+	journal.mu.Unlock()
+}
+
+func (journal *eventJournal) snapshot() []string {
+	journal.mu.Lock()
+	defer journal.mu.Unlock()
+	return append([]string(nil), journal.events...)
+}
+
 type Instance struct {
 	host   *Host
 	ctx    context.Context
@@ -59,6 +87,7 @@ type Instance struct {
 	packetSink uint64
 	eventSink  uint64
 	events     chan Event
+	journal    *eventJournal
 
 	commands          chan command
 	dataPlaneCommands chan dataPlaneCommand
@@ -159,6 +188,14 @@ func (instance *Instance) Wait(ctx context.Context) error {
 
 func (instance *Instance) State() coreabi.State {
 	return coreabi.State(instance.state.Load())
+}
+
+func (instance *Instance) ManagementEvents() []string {
+	return instance.journal.snapshot()
+}
+
+func (instance *Instance) TerminalError() error {
+	return instance.terminalError()
 }
 
 func (instance *Instance) Close(ctx context.Context) error {

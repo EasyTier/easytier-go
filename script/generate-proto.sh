@@ -29,8 +29,12 @@ protoc \
     --go_opt=Macl.proto=github.com/EasyTier/easytier-go-host/proto/acl \
     --go_opt=Mpeer_rpc.proto=github.com/EasyTier/easytier-go-host/proto/peer_rpc \
     --go_opt=Mapi_instance.proto=github.com/EasyTier/easytier-go-host/proto/api/instance \
+    --go_opt=Mapi_manage.proto=github.com/EasyTier/easytier-go-host/proto/api/manage \
+    --go_opt=Mweb.proto=github.com/EasyTier/easytier-go-host/proto/web \
     "${proto_root}/common.proto" \
     "${proto_root}/error.proto" \
     "${proto_root}/acl.proto" \
     "${proto_root}/peer_rpc.proto" \
-    "${proto_root}/api_instance.proto"
+    "${proto_root}/api_instance.proto" \
+    "${proto_root}/api_manage.proto" \
+    "${proto_root}/web.proto"

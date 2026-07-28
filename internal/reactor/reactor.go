@@ -28,12 +28,14 @@ const (
 	operationDNS
 	operationEnvironment
 	operationPacketWrite
+	operationManagement
 )
 
 type Options struct {
 	Services         platform.Services
 	InitialStreams   map[uint64]net.Conn
 	InitialDatagrams map[uint64]net.PacketConn
+	Management       ManagementHandler
 }
 
 type Reactor struct {
@@ -47,7 +49,8 @@ type Reactor struct {
 	workers    sync.WaitGroup
 	nextHandle uint64
 
-	services platform.Services
+	services          platform.Services
+	managementHandler ManagementHandler
 
 	operations        map[uint64]operationKind
 	streams           map[uint64]net.Conn
@@ -65,6 +68,7 @@ type Reactor struct {
 	eventSinks        map[uint64]eventSink
 	packetSinks       map[uint64]*packetSink
 	packetWrites      map[uint64]*packetWriteWaiter
+	management        map[uint64]*managementOperation
 }
 
 func New(parent context.Context, options Options) *Reactor {
@@ -79,6 +83,7 @@ func New(parent context.Context, options Options) *Reactor {
 		completion:        make(chan struct{}, 1),
 		nextHandle:        1 << 48,
 		services:          options.Services,
+		managementHandler: options.Management,
 		operations:        make(map[uint64]operationKind),
 		streams:           make(map[uint64]net.Conn, len(options.InitialStreams)),
 		datagrams:         make(map[uint64]*datagramState, len(options.InitialDatagrams)),
@@ -95,6 +100,7 @@ func New(parent context.Context, options Options) *Reactor {
 		eventSinks:        make(map[uint64]eventSink),
 		packetSinks:       make(map[uint64]*packetSink),
 		packetWrites:      make(map[uint64]*packetWriteWaiter),
+		management:        make(map[uint64]*managementOperation),
 	}
 	for handle, connection := range options.InitialStreams {
 		reactor.streams[handle] = connection
@@ -186,6 +192,12 @@ func (reactor *Reactor) CancelOperation(id uint64) error {
 		}
 	case operationPacketWrite:
 		delete(reactor.packetWrites, id)
+	case operationManagement:
+		operation := reactor.management[id]
+		delete(reactor.management, id)
+		if operation != nil {
+			cancel = operation.cancel
+		}
 	default:
 		reactor.mu.Unlock()
 		return fmt.Errorf("%w: unknown operation kind %d", ErrInvalid, kind)
@@ -258,6 +270,7 @@ func (reactor *Reactor) Close() {
 	creates := reactor.creates
 	dnsOperations := reactor.dns
 	environmentOperations := reactor.environments
+	managementOperations := reactor.management
 
 	reactor.operations = make(map[uint64]operationKind)
 	reactor.streams = make(map[uint64]net.Conn)
@@ -275,6 +288,7 @@ func (reactor *Reactor) Close() {
 	reactor.eventSinks = make(map[uint64]eventSink)
 	reactor.packetSinks = make(map[uint64]*packetSink)
 	reactor.packetWrites = make(map[uint64]*packetWriteWaiter)
+	reactor.management = make(map[uint64]*managementOperation)
 	reactor.mu.Unlock()
 
 	for _, stream := range streams {
@@ -302,6 +316,9 @@ func (reactor *Reactor) Close() {
 		operation.cancel()
 	}
 	for _, operation := range environmentOperations {
+		operation.cancel()
+	}
+	for _, operation := range managementOperations {
 		operation.cancel()
 	}
 	reactor.workers.Wait()

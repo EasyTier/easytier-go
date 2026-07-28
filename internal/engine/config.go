@@ -10,10 +10,21 @@ import (
 )
 
 const createConfigVersion = 14
+const webClientConfigVersion = 1
 
 type createEnvelope struct {
 	Version     uint32              `json:"version"`
 	Config      string              `json:"config"`
+	Environment environmentSnapshot `json:"environment"`
+}
+
+type webClientEnvelope struct {
+	Version     uint32              `json:"version"`
+	Endpoint    string              `json:"endpoint"`
+	MachineID   string              `json:"machine_id"`
+	Hostname    string              `json:"hostname"`
+	SecureMode  bool                `json:"secure_mode"`
+	OSType      string              `json:"os_type"`
 	Environment environmentSnapshot `json:"environment"`
 }
 
@@ -51,6 +62,38 @@ func encodeCreateEnvelope(
 	})
 	if err != nil {
 		return nil, fmt.Errorf("encode EasyTier create envelope: %w", err)
+	}
+	return encoded, nil
+}
+
+func encodeWebClientEnvelope(
+	options WebClientOptions,
+	snapshot platform.EnvironmentSnapshot,
+) ([]byte, error) {
+	if options.Endpoint == "" {
+		return nil, fmt.Errorf("EasyTier WebClient endpoint is empty")
+	}
+	if options.MachineID == "" {
+		return nil, fmt.Errorf("EasyTier WebClient machine ID is empty")
+	}
+	if options.Hostname == "" {
+		return nil, fmt.Errorf("EasyTier WebClient hostname is empty")
+	}
+	environment, err := encodeEnvironmentSnapshot(snapshot)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := json.Marshal(webClientEnvelope{
+		Version:     webClientConfigVersion,
+		Endpoint:    options.Endpoint,
+		MachineID:   options.MachineID,
+		Hostname:    options.Hostname,
+		SecureMode:  options.SecureMode,
+		OSType:      options.OSType,
+		Environment: environment,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("encode EasyTier WebClient envelope: %w", err)
 	}
 	return encoded, nil
 }
