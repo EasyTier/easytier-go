@@ -117,6 +117,13 @@ func TestPublicFacadeConnectsTwoCoresAndExchangesPacket(t *testing.T) {
 	if !strings.Contains(event.Message, "PeerAdded") {
 		t.Fatalf("peer event message = %q", event.Message)
 	}
+	peers, err := client.ListPeer(ctx)
+	if err != nil {
+		t.Fatalf("list connected peers: %v", err)
+	}
+	if len(peers.PeerInfos) == 0 {
+		t.Fatal("connected peer list is empty")
+	}
 
 	if err := client.Stop(ctx); err != nil {
 		t.Fatalf("stop client: %v", err)

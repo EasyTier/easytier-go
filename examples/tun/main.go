@@ -17,6 +17,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	corehost "github.com/EasyTier/easytier-go-host"
 	tun "github.com/sagernet/sing-tun"
@@ -90,6 +91,7 @@ func run(ctx context.Context, options options) error {
 	if err := instance.Start(ctx); err != nil {
 		return fmt.Errorf("start EasyTier instance: %w", err)
 	}
+	startManagementSignals(ctx, instance)
 	forwarders, err := startPortForwards(
 		ctx,
 		instance.Dial,
@@ -120,6 +122,54 @@ func logEvents(ctx context.Context, events <-chan corehost.Event) {
 			return
 		}
 	}
+}
+
+func startManagementSignals(
+	ctx context.Context,
+	instance *corehost.Instance,
+) {
+	var peerSignal syscall.Signal
+	var routeSignal syscall.Signal
+	// SIGUSR1 and SIGUSR2 have different numbers on Linux and macOS.
+	switch runtime.GOOS {
+	case "linux":
+		peerSignal, routeSignal = 10, 12
+	case "darwin":
+		peerSignal, routeSignal = 30, 31
+	default:
+		return
+	}
+
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, peerSignal, routeSignal)
+	go func() {
+		defer signal.Stop(signals)
+		for {
+			select {
+			case received := <-signals:
+				queryContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+				switch received {
+				case peerSignal:
+					response, err := instance.ListPeer(queryContext)
+					if err != nil {
+						log.Printf("query EasyTier peer list: %v", err)
+					} else {
+						log.Printf("EasyTier peer list: %v", response)
+					}
+				case routeSignal:
+					response, err := instance.ListRoute(queryContext)
+					if err != nil {
+						log.Printf("query EasyTier route list: %v", err)
+					} else {
+						log.Printf("EasyTier route list: %v", response)
+					}
+				}
+				cancel()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 }
 
 // Native TUN adapter

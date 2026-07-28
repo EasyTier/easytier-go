@@ -55,13 +55,11 @@ connection, err := instance.Dial(ctx, "tcp4", "10.144.0.2:8080")
 packets, err := instance.ListenPacket("udp4", ":5353")
 ```
 
-`Instance.RPC` exposes the embedded core's existing instance-scoped management
-RPCs without adding a second operator API. Its input is a serialized
-`common.RpcRequest`, including the normally deprecated `descriptor` field, and
-its output is the complete serialized `common.RpcResponse`. Method failures
-remain in that response envelope; Go errors report host, ABI, cancellation, or
-instance-lifecycle failures. Cancelling the context frees the pending guest
-operation.
+`Instance.ListPeer` and `Instance.ListRoute` call the embedded core's existing
+instance-scoped management RPCs and return generated protobuf responses. The
+protobuf envelope and operation lifecycle stay internal to the host; callers
+never construct wire bytes or a separate RPC client. Cancelling the context
+frees the pending guest operation.
 
 `InstanceConfigBuilder` exposes the instance settings supported by this host:
 network identity, hostname, virtual IPv4 address, peers and listeners, IPv4 and
@@ -117,6 +115,9 @@ Windows or `utunN` on macOS, assigns the requested address, and sets an MTU of
 1380. Run it as root or with `CAP_NET_ADMIN` on Linux, with `sudo` on macOS, or
 from an Administrator terminal on Windows. Closing the command removes the TUN
 interface. The example does not install a default route or enable GSO.
+
+On Linux and macOS, send `SIGUSR1` to print the current peer list or `SIGUSR2`
+to print the current route list.
 
 Repeat `-port-forward` to expose local TCP or UDP ports through the instance's
 `Dial` interface:
@@ -211,6 +212,8 @@ The implementation is split by responsibility:
 
 - `platform` defines public capability ports; `platform/netstd` implements
   their portable defaults.
+- `proto` contains generated Go bindings for the existing EasyTier management
+  protobuf definitions.
 - `internal/reactor` owns typed asynchronous operations, resources, operation
   IDs, backpressure, and completion signals without depending on wazero.
 - `internal/hostabi` implements the custom `easytier_host` imports, guest
@@ -241,6 +244,10 @@ records the EasyTier commit and optimized artifact SHA-256. Tracked EasyTier
 changes block generation; unrelated untracked files do not.
 `corehost.CoreInfo()` exposes that provenance without exposing the artifact
 bytes.
+
+The same `EASYTIER_SOURCE` is used to regenerate the Go protobuf bindings for
+the management responses. This step requires `protoc` and `protoc-gen-go` on
+`PATH`.
 
 The test-only socket probe is retained from
 [EasyTier commit 6a3d15f](https://github.com/EasyTier/EasyTier/tree/6a3d15f8758eed759d55401ff4ed7c47021b0819/tools/wasi-socket-poc/guest);
