@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/EasyTier/easytier-go-host/internal/coreabi"
 	"github.com/EasyTier/easytier-go-host/platform/netstd"
 )
 
@@ -82,6 +83,9 @@ func TestClosingOneHandleLeavesOtherInstanceRunning(t *testing.T) {
 	}
 	if err := first.Close(ctx); err != nil {
 		t.Fatalf("close first instance: %v", err)
+	}
+	if state := first.State(); state != coreabi.StateStopped {
+		t.Fatalf("closed first state = %d, want stopped", state)
 	}
 	if state := second.State(); state != 2 {
 		t.Fatalf("second state after first close = %d, want running", state)

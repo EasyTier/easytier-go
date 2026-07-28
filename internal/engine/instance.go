@@ -255,6 +255,7 @@ func (instance *Instance) execute(ctx context.Context, request command) error {
 
 func (instance *Instance) run() {
 	runErr := instance.driveLoop()
+	instance.state.Store(int32(coreabi.StateStopped))
 	instance.failPendingOperations(net.ErrClosed)
 	instance.failPendingRPCs(net.ErrClosed)
 	cleanupErr := instance.shutdown()
