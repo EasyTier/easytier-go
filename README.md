@@ -121,6 +121,9 @@ returns `net.PacketConn`. ABI v2 currently supports `tcp`, `tcp4`, `udp`, and
 addresses. These APIs are overlay-only: an absent EasyTier route is returned as
 a normal network error and never falls back to the host network.
 
+See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for current UDP and
+port-forward edge cases.
+
 No public type exposes wazero runtimes, WebAssembly pointers, raw handles,
 submit/take operations, or the cooperative `drive` loop. Each host owns one
 wazero runtime, guest module, and host completion domain; each instance is
