@@ -737,6 +737,7 @@ func (x *GetConfigRequest) GetInstance() *instance.InstanceIdentifier {
 type GetConfigResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Config        *manage.NetworkConfig  `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
+	TomlConfig    string                 `protobuf:"bytes,2,opt,name=toml_config,json=tomlConfig,proto3" json:"toml_config,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -776,6 +777,13 @@ func (x *GetConfigResponse) GetConfig() *manage.NetworkConfig {
 		return x.Config
 	}
 	return nil
+}
+
+func (x *GetConfigResponse) GetTomlConfig() string {
+	if x != nil {
+		return x.TomlConfig
+	}
+	return ""
 }
 
 var File_api_config_proto protoreflect.FileDescriptor
@@ -843,9 +851,11 @@ const file_api_config_proto_rawDesc = "" +
 	"\binstance\x18\x02 \x01(\v2 .api.instance.InstanceIdentifierR\binstance\"\x15\n" +
 	"\x13PatchConfigResponse\"P\n" +
 	"\x10GetConfigRequest\x12<\n" +
-	"\binstance\x18\x01 \x01(\v2 .api.instance.InstanceIdentifierR\binstance\"F\n" +
+	"\binstance\x18\x01 \x01(\v2 .api.instance.InstanceIdentifierR\binstance\"g\n" +
 	"\x11GetConfigResponse\x121\n" +
-	"\x06config\x18\x01 \x01(\v2\x19.api.manage.NetworkConfigR\x06config*3\n" +
+	"\x06config\x18\x01 \x01(\v2\x19.api.manage.NetworkConfigR\x06config\x12\x1f\n" +
+	"\vtoml_config\x18\x02 \x01(\tR\n" +
+	"tomlConfig*3\n" +
 	"\x11ConfigPatchAction\x12\a\n" +
 	"\x03ADD\x10\x00\x12\n" +
 	"\n" +

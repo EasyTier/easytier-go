@@ -329,7 +329,7 @@ func (manager *instanceManager) patchConfig(
 	}
 
 	response := new(apiconfig.PatchConfigResponse)
-	if err := entry.instance.callRPCRequest(
+	patchErr := entry.instance.callRPCRequest(
 		ctx,
 		patchConfigMethod,
 		&apiconfig.PatchConfigRequest{
@@ -337,28 +337,42 @@ func (manager *instanceManager) patchConfig(
 			Instance: request.Instance,
 		},
 		response,
-	); err != nil {
-		return nil, err
-	}
+	)
+	snapshotContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
 	effective := new(apiconfig.GetConfigResponse)
 	if err := entry.instance.callRPCRequest(
-		ctx,
+		snapshotContext,
 		getConfigMethod,
 		&apiconfig.GetConfigRequest{Instance: request.Instance},
 		effective,
 	); err != nil {
-		return nil, err
+		return nil, errors.Join(
+			patchErr,
+			fmt.Errorf("read effective EasyTier configuration: %w", err),
+		)
 	}
-	if effective.Config == nil {
-		return nil, fmt.Errorf("EasyTier instance %s returned an empty config", key)
+	if effective.Config == nil || effective.TomlConfig == "" {
+		return nil, errors.Join(
+			patchErr,
+			fmt.Errorf("EasyTier instance %s returned an incomplete config snapshot", key),
+		)
 	}
 
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	if manager.instances[key] != entry {
-		return nil, fmt.Errorf("EasyTier instance %s is no longer running", key)
+		manager.mu.Unlock()
+		return nil, errors.Join(
+			patchErr,
+			fmt.Errorf("EasyTier instance %s is no longer running", key),
+		)
 	}
 	entry.config = mergeHostedConfigPatch(entry.config, effective.Config, request.Patch)
+	entry.configTOML = effective.TomlConfig
+	manager.mu.Unlock()
+	if patchErr != nil {
+		return nil, patchErr
+	}
 	return response, nil
 }
 

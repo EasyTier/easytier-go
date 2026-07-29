@@ -234,6 +234,44 @@ func TestWebManagementRunsCollectsAndDeletesInstance(t *testing.T) {
 		t.Fatalf("patched config unknown fields = %x, want %x", unknown, unknownConfig)
 	}
 
+	originalInstance := host.manager.snapshot()[0].instance
+	replacementConfig := proto.Clone(networkConfig).(*manage.NetworkConfig)
+	_, err = host.manager.runNetworkInstance(
+		ctx,
+		&manage.RunNetworkInstanceRequest{
+			InstId:    id,
+			Config:    replacementConfig,
+			Overwrite: true,
+			Source:    manage.ConfigSource_ConfigSourceWeb,
+		},
+		"[",
+		id,
+	)
+	if err == nil {
+		t.Fatal("invalid replacement config unexpectedly succeeded")
+	}
+	restoredEntries := host.manager.snapshot()
+	if len(restoredEntries) != 1 || restoredEntries[0].instance == originalInstance {
+		t.Fatalf("restored entries = %v, want one replacement instance", restoredEntries)
+	}
+	effectiveConfig := new(apiconfig.GetConfigResponse)
+	if err := restoredEntries[0].instance.callRPCRequest(
+		ctx,
+		getConfigMethod,
+		&apiconfig.GetConfigRequest{Instance: identifier},
+		effectiveConfig,
+	); err != nil {
+		t.Fatalf("get restored runtime config: %v", err)
+	}
+	if effectiveConfig.Config == nil ||
+		!effectiveConfig.Config.GetDisableRelayData() {
+		t.Fatalf("restored runtime config = %v, want relay data disabled", effectiveConfig.Config)
+	}
+	if effectiveConfig.TomlConfig == "" ||
+		effectiveConfig.TomlConfig != restoredEntries[0].configTOML {
+		t.Fatal("restored TOML config does not match the running Core")
+	}
+
 	deleted := callManagement(
 		t,
 		host,
