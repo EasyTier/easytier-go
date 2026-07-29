@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	apiconfig "github.com/EasyTier/easytier-go-host/proto/api/config"
 	apiinstance "github.com/EasyTier/easytier-go-host/proto/api/instance"
 	"github.com/EasyTier/easytier-go-host/proto/api/manage"
 	"github.com/EasyTier/easytier-go-host/proto/common"
@@ -26,6 +27,8 @@ const (
 	deleteNetworkInstanceMethod    = "api.manage.WebClientService.DeleteNetworkInstance"
 	getNetworkInstanceConfigMethod = "api.manage.WebClientService.GetNetworkInstanceConfig"
 	listNetworkInstanceMetaMethod  = "api.manage.WebClientService.ListNetworkInstanceMeta"
+	patchConfigMethod              = "api.config.ConfigRpc.PatchConfig"
+	getConfigMethod                = "api.config.ConfigRpc.GetConfig"
 )
 
 type instanceOwner uint8
@@ -86,7 +89,8 @@ func (manager *instanceManager) snapshot() []*managedInstance {
 	manager.mu.RLock()
 	entries := make([]*managedInstance, 0, len(manager.instances))
 	for _, entry := range manager.instances {
-		entries = append(entries, entry)
+		snapshot := *entry
+		entries = append(entries, &snapshot)
 	}
 	manager.mu.RUnlock()
 	sort.Slice(entries, func(i, j int) bool {
@@ -116,6 +120,7 @@ func (manager *instanceManager) handle(
 		envelope.Rpc.FullMethodName,
 		envelope.Rpc.Request,
 		envelope.GetPreparedConfig(),
+		envelope.GetPreparedInstanceId(),
 	)
 	return encodeManagementResponse(response, err, started)
 }
@@ -125,6 +130,7 @@ func (manager *instanceManager) dispatch(
 	method string,
 	encoded []byte,
 	preparedConfig string,
+	preparedInstanceID *common.UUID,
 ) (proto.Message, error) {
 	switch method {
 	case runNetworkInstanceMethod:
@@ -132,7 +138,12 @@ func (manager *instanceManager) dispatch(
 		if err := proto.Unmarshal(encoded, request); err != nil {
 			return nil, err
 		}
-		return manager.runNetworkInstance(ctx, request, preparedConfig)
+		return manager.runNetworkInstance(
+			ctx,
+			request,
+			preparedConfig,
+			preparedInstanceID,
+		)
 	case retainNetworkInstanceMethod:
 		request := new(manage.RetainNetworkInstanceRequest)
 		if err := proto.Unmarshal(encoded, request); err != nil {
@@ -169,6 +180,18 @@ func (manager *instanceManager) dispatch(
 			return nil, err
 		}
 		return manager.listNetworkInstanceMeta(request), nil
+	case patchConfigMethod:
+		request := new(apiconfig.PatchConfigRequest)
+		if err := proto.Unmarshal(encoded, request); err != nil {
+			return nil, err
+		}
+		return manager.patchConfig(ctx, request)
+	case getConfigMethod:
+		request := new(apiconfig.GetConfigRequest)
+		if err := proto.Unmarshal(encoded, request); err != nil {
+			return nil, err
+		}
+		return manager.getConfig(request)
 	default:
 		return nil, fmt.Errorf("unsupported host management method %q", method)
 	}
@@ -178,14 +201,20 @@ func (manager *instanceManager) runNetworkInstance(
 	ctx context.Context,
 	request *manage.RunNetworkInstanceRequest,
 	preparedConfig string,
+	preparedInstanceID *common.UUID,
 ) (*manage.RunNetworkInstanceResponse, error) {
-	if request.InstId == nil || request.Config == nil {
-		return nil, fmt.Errorf("instance ID and config are required")
+	if request.Config == nil {
+		return nil, fmt.Errorf("config is required")
 	}
 	if preparedConfig == "" {
 		return nil, fmt.Errorf("prepared EasyTier config is required")
 	}
-	id := uuidString(request.InstId)
+	if preparedInstanceID == nil {
+		return nil, fmt.Errorf("prepared EasyTier instance ID is required")
+	}
+	request.InstId = cloneUUID(preparedInstanceID)
+	id := uuidString(preparedInstanceID)
+	request.Config.InstanceId = &id
 	manager.mutations.Lock()
 	defer manager.mutations.Unlock()
 
@@ -272,6 +301,124 @@ func (manager *instanceManager) createWebInstance(
 		return nil, err
 	}
 	return entry, nil
+}
+
+func (manager *instanceManager) patchConfig(
+	ctx context.Context,
+	request *apiconfig.PatchConfigRequest,
+) (*apiconfig.PatchConfigResponse, error) {
+	id, err := selectedInstanceID(request.Instance)
+	if err != nil {
+		return nil, err
+	}
+	key := uuidString(id)
+	manager.mutations.Lock()
+	defer manager.mutations.Unlock()
+
+	manager.mu.RLock()
+	entry := manager.instances[key]
+	manager.mu.RUnlock()
+	if entry == nil {
+		return nil, fmt.Errorf("EasyTier instance %s not found", key)
+	}
+	if entry.owner != instanceOwnerWeb {
+		return nil, fmt.Errorf("configuration for instance %s is read-only", key)
+	}
+	if request.Patch == nil {
+		return new(apiconfig.PatchConfigResponse), nil
+	}
+
+	response := new(apiconfig.PatchConfigResponse)
+	if err := entry.instance.callRPCRequest(
+		ctx,
+		patchConfigMethod,
+		&apiconfig.PatchConfigRequest{
+			Patch:    hostedConfigPatch(request.Patch),
+			Instance: request.Instance,
+		},
+		response,
+	); err != nil {
+		return nil, err
+	}
+	effective := new(apiconfig.GetConfigResponse)
+	if err := entry.instance.callRPCRequest(
+		ctx,
+		getConfigMethod,
+		&apiconfig.GetConfigRequest{Instance: request.Instance},
+		effective,
+	); err != nil {
+		return nil, err
+	}
+	if effective.Config == nil {
+		return nil, fmt.Errorf("EasyTier instance %s returned an empty config", key)
+	}
+
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.instances[key] != entry {
+		return nil, fmt.Errorf("EasyTier instance %s is no longer running", key)
+	}
+	entry.config = mergeHostedConfigPatch(entry.config, effective.Config, request.Patch)
+	return response, nil
+}
+
+func (manager *instanceManager) getConfig(
+	request *apiconfig.GetConfigRequest,
+) (*apiconfig.GetConfigResponse, error) {
+	id, err := selectedInstanceID(request.Instance)
+	if err != nil {
+		return nil, err
+	}
+	response, err := manager.getNetworkInstanceConfig(
+		&manage.GetNetworkInstanceConfigRequest{InstId: id},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &apiconfig.GetConfigResponse{Config: response.Config}, nil
+}
+
+func selectedInstanceID(
+	identifier *apiinstance.InstanceIdentifier,
+) (*common.UUID, error) {
+	id := identifier.GetId()
+	if id == nil {
+		return nil, fmt.Errorf("instance ID is required")
+	}
+	return id, nil
+}
+
+func hostedConfigPatch(
+	patch *apiconfig.InstanceConfigPatch,
+) *apiconfig.InstanceConfigPatch {
+	return &apiconfig.InstanceConfigPatch{
+		PortForwards:     patch.PortForwards,
+		Acl:              patch.Acl,
+		ProxyNetworks:    patch.ProxyNetworks,
+		DisableRelayData: patch.DisableRelayData,
+	}
+}
+
+func mergeHostedConfigPatch(
+	desired *manage.NetworkConfig,
+	effective *manage.NetworkConfig,
+	patch *apiconfig.InstanceConfigPatch,
+) *manage.NetworkConfig {
+	merged := proto.Clone(desired).(*manage.NetworkConfig)
+	runtime := proto.Clone(effective).(*manage.NetworkConfig)
+	if len(patch.PortForwards) != 0 {
+		merged.PortForwards = runtime.PortForwards
+	}
+	if patch.Acl != nil {
+		merged.Acl = runtime.Acl
+	}
+	if len(patch.ProxyNetworks) != 0 {
+		merged.ProxyCidrs = runtime.ProxyCidrs
+	}
+	if patch.DisableRelayData != nil {
+		merged.DisableRelayData = runtime.DisableRelayData
+	}
+	return merged
 }
 
 func (manager *instanceManager) retainNetworkInstances(
@@ -441,16 +588,17 @@ func (manager *instanceManager) getNetworkInstanceConfig(
 	}
 	id := uuidString(request.InstId)
 	manager.mu.RLock()
+	defer manager.mu.RUnlock()
 	entry := manager.instances[id]
-	manager.mu.RUnlock()
 	if entry == nil {
 		return nil, fmt.Errorf("EasyTier instance %s not found", id)
 	}
 	if entry.owner != instanceOwnerWeb {
 		return nil, fmt.Errorf("configuration for instance %s is read-only", id)
 	}
+	config := proto.Clone(entry.config).(*manage.NetworkConfig)
 	return &manage.GetNetworkInstanceConfigResponse{
-		Config: proto.Clone(entry.config).(*manage.NetworkConfig),
+		Config: config,
 		Source: entry.source,
 	}, nil
 }

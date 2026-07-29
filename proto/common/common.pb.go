@@ -785,8 +785,10 @@ type HostManagementRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Rpc            *DirectRpcRequest      `protobuf:"bytes,1,opt,name=rpc,proto3" json:"rpc,omitempty"`
 	PreparedConfig *string                `protobuf:"bytes,2,opt,name=prepared_config,json=preparedConfig,proto3,oneof" json:"prepared_config,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Runtime identity paired with prepared_config without rewriting rpc.request.
+	PreparedInstanceId *UUID `protobuf:"bytes,3,opt,name=prepared_instance_id,json=preparedInstanceId,proto3" json:"prepared_instance_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *HostManagementRequest) Reset() {
@@ -831,6 +833,13 @@ func (x *HostManagementRequest) GetPreparedConfig() string {
 		return *x.PreparedConfig
 	}
 	return ""
+}
+
+func (x *HostManagementRequest) GetPreparedInstanceId() *UUID {
+	if x != nil {
+		return x.PreparedInstanceId
+	}
+	return nil
 }
 
 type RpcResponse struct {
@@ -2261,10 +2270,11 @@ const file_common_proto_rawDesc = "" +
 	"\arequest\x18\x02 \x01(\fR\arequest\x12\"\n" +
 	"\n" +
 	"timeout_ms\x18\x03 \x01(\x04H\x00R\ttimeoutMs\x88\x01\x01B\r\n" +
-	"\v_timeout_ms\"\x85\x01\n" +
+	"\v_timeout_ms\"\xc5\x01\n" +
 	"\x15HostManagementRequest\x12*\n" +
 	"\x03rpc\x18\x01 \x01(\v2\x18.common.DirectRpcRequestR\x03rpc\x12,\n" +
-	"\x0fprepared_config\x18\x02 \x01(\tH\x00R\x0epreparedConfig\x88\x01\x01B\x12\n" +
+	"\x0fprepared_config\x18\x02 \x01(\tH\x00R\x0epreparedConfig\x88\x01\x01\x12>\n" +
+	"\x14prepared_instance_id\x18\x03 \x01(\v2\f.common.UUIDR\x12preparedInstanceIdB\x12\n" +
 	"\x10_prepared_config\"l\n" +
 	"\vRpcResponse\x12\x1a\n" +
 	"\bresponse\x18\x01 \x01(\fR\bresponse\x12\"\n" +
@@ -2449,33 +2459,34 @@ var file_common_proto_depIdxs = []int32{
 	0,  // 0: common.FlagsInConfig.data_compress_algo:type_name -> common.CompressionAlgoPb
 	4,  // 1: common.RpcRequest.descriptor:type_name -> common.RpcDescriptor
 	6,  // 2: common.HostManagementRequest.rpc:type_name -> common.DirectRpcRequest
-	28, // 3: common.RpcResponse.error:type_name -> error.Error
-	0,  // 4: common.RpcCompressionInfo.algo:type_name -> common.CompressionAlgoPb
-	0,  // 5: common.RpcCompressionInfo.accepted_algo:type_name -> common.CompressionAlgoPb
-	4,  // 6: common.RpcPacket.descriptor:type_name -> common.RpcDescriptor
-	9,  // 7: common.RpcPacket.compression_info:type_name -> common.RpcCompressionInfo
-	13, // 8: common.IpAddr.ipv4:type_name -> common.Ipv4Addr
-	14, // 9: common.IpAddr.ipv6:type_name -> common.Ipv6Addr
-	13, // 10: common.Ipv4Inet.address:type_name -> common.Ipv4Addr
-	14, // 11: common.Ipv6Inet.address:type_name -> common.Ipv6Addr
-	16, // 12: common.IpInet.ipv4:type_name -> common.Ipv4Inet
-	17, // 13: common.IpInet.ipv6:type_name -> common.Ipv6Inet
-	13, // 14: common.SocketAddr.ipv4:type_name -> common.Ipv4Addr
-	14, // 15: common.SocketAddr.ipv6:type_name -> common.Ipv6Addr
-	19, // 16: common.TunnelInfo.local_addr:type_name -> common.Url
-	19, // 17: common.TunnelInfo.remote_addr:type_name -> common.Url
-	19, // 18: common.TunnelInfo.resolved_remote_addr:type_name -> common.Url
-	1,  // 19: common.StunInfo.udp_nat_type:type_name -> common.NatType
-	1,  // 20: common.StunInfo.tcp_nat_type:type_name -> common.NatType
-	20, // 21: common.PortForwardConfigPb.bind_addr:type_name -> common.SocketAddr
-	20, // 22: common.PortForwardConfigPb.dst_addr:type_name -> common.SocketAddr
-	2,  // 23: common.PortForwardConfigPb.socket_type:type_name -> common.SocketType
-	20, // 24: common.ProxyDstInfo.dst_addr:type_name -> common.SocketAddr
-	25, // [25:25] is the sub-list for method output_type
-	25, // [25:25] is the sub-list for method input_type
-	25, // [25:25] is the sub-list for extension type_name
-	25, // [25:25] is the sub-list for extension extendee
-	0,  // [0:25] is the sub-list for field type_name
+	12, // 3: common.HostManagementRequest.prepared_instance_id:type_name -> common.UUID
+	28, // 4: common.RpcResponse.error:type_name -> error.Error
+	0,  // 5: common.RpcCompressionInfo.algo:type_name -> common.CompressionAlgoPb
+	0,  // 6: common.RpcCompressionInfo.accepted_algo:type_name -> common.CompressionAlgoPb
+	4,  // 7: common.RpcPacket.descriptor:type_name -> common.RpcDescriptor
+	9,  // 8: common.RpcPacket.compression_info:type_name -> common.RpcCompressionInfo
+	13, // 9: common.IpAddr.ipv4:type_name -> common.Ipv4Addr
+	14, // 10: common.IpAddr.ipv6:type_name -> common.Ipv6Addr
+	13, // 11: common.Ipv4Inet.address:type_name -> common.Ipv4Addr
+	14, // 12: common.Ipv6Inet.address:type_name -> common.Ipv6Addr
+	16, // 13: common.IpInet.ipv4:type_name -> common.Ipv4Inet
+	17, // 14: common.IpInet.ipv6:type_name -> common.Ipv6Inet
+	13, // 15: common.SocketAddr.ipv4:type_name -> common.Ipv4Addr
+	14, // 16: common.SocketAddr.ipv6:type_name -> common.Ipv6Addr
+	19, // 17: common.TunnelInfo.local_addr:type_name -> common.Url
+	19, // 18: common.TunnelInfo.remote_addr:type_name -> common.Url
+	19, // 19: common.TunnelInfo.resolved_remote_addr:type_name -> common.Url
+	1,  // 20: common.StunInfo.udp_nat_type:type_name -> common.NatType
+	1,  // 21: common.StunInfo.tcp_nat_type:type_name -> common.NatType
+	20, // 22: common.PortForwardConfigPb.bind_addr:type_name -> common.SocketAddr
+	20, // 23: common.PortForwardConfigPb.dst_addr:type_name -> common.SocketAddr
+	2,  // 24: common.PortForwardConfigPb.socket_type:type_name -> common.SocketType
+	20, // 25: common.ProxyDstInfo.dst_addr:type_name -> common.SocketAddr
+	26, // [26:26] is the sub-list for method output_type
+	26, // [26:26] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_common_proto_init() }

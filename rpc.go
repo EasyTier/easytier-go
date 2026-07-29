@@ -94,6 +94,15 @@ func (instance *Instance) callRPC(
 	fullMethodName string,
 	response proto.Message,
 ) error {
+	return instance.callRPCRequest(ctx, fullMethodName, nil, response)
+}
+
+func (instance *Instance) callRPCRequest(
+	ctx context.Context,
+	fullMethodName string,
+	request proto.Message,
+	response proto.Message,
+) error {
 	if instance == nil || instance.engine == nil {
 		return fmt.Errorf("call RPC through nil EasyTier instance")
 	}
@@ -115,8 +124,17 @@ func (instance *Instance) callRPC(
 		}
 		timeoutMillis = &millis
 	}
+	var payload []byte
+	var err error
+	if request != nil {
+		payload, err = proto.Marshal(request)
+		if err != nil {
+			return fmt.Errorf("encode EasyTier RPC %s request: %w", fullMethodName, err)
+		}
+	}
 	encodedRequest, err := proto.Marshal(&common.DirectRpcRequest{
 		FullMethodName: fullMethodName,
+		Request:        payload,
 		TimeoutMs:      timeoutMillis,
 	})
 	if err != nil {

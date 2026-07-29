@@ -1,14 +1,18 @@
 package host
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/netip"
 	"testing"
 	"time"
 
+	apiconfig "github.com/EasyTier/easytier-go-host/proto/api/config"
+	apiinstance "github.com/EasyTier/easytier-go-host/proto/api/instance"
 	"github.com/EasyTier/easytier-go-host/proto/api/manage"
 	"github.com/EasyTier/easytier-go-host/proto/common"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -86,6 +90,9 @@ func TestWebManagementRunsCollectsAndDeletesInstance(t *testing.T) {
 		InstanceId:  &idString,
 		NetworkName: &networkName,
 	}
+	unknownConfig := protowire.AppendTag(nil, 1000, protowire.BytesType)
+	unknownConfig = protowire.AppendString(unknownConfig, "future-config")
+	networkConfig.ProtoReflect().SetUnknown(unknownConfig)
 	run := callManagement(
 		t,
 		host,
@@ -178,6 +185,54 @@ func TestWebManagementRunsCollectsAndDeletesInstance(t *testing.T) {
 		managedConfig.Source != manage.ConfigSource_ConfigSourceWeb {
 		t.Fatalf("managed config response = %v", managedConfig)
 	}
+	if unknown := managedConfig.Config.ProtoReflect().GetUnknown(); !bytes.Equal(
+		unknown,
+		unknownConfig,
+	) {
+		t.Fatalf("managed config unknown fields = %x, want %x", unknown, unknownConfig)
+	}
+
+	disableRelayData := true
+	unsupportedHostname := "ignored-hostname"
+	identifier := &apiinstance.InstanceIdentifier{
+		Selector: &apiinstance.InstanceIdentifier_Id{Id: id},
+	}
+	callManagement(
+		t,
+		host,
+		ctx,
+		patchConfigMethod,
+		&apiconfig.PatchConfigRequest{
+			Instance: identifier,
+			Patch: &apiconfig.InstanceConfigPatch{
+				Hostname:         &unsupportedHostname,
+				DisableRelayData: &disableRelayData,
+			},
+		},
+		"",
+		new(apiconfig.PatchConfigResponse),
+	)
+	patchedConfig := callManagement(
+		t,
+		host,
+		ctx,
+		getConfigMethod,
+		&apiconfig.GetConfigRequest{Instance: identifier},
+		"",
+		new(apiconfig.GetConfigResponse),
+	).(*apiconfig.GetConfigResponse).Config
+	if patchedConfig == nil || !patchedConfig.GetDisableRelayData() {
+		t.Fatalf("patched config = %v, want relay data disabled", patchedConfig)
+	}
+	if patchedConfig.Hostname != nil {
+		t.Fatalf("unsupported hostname patch was applied: %q", patchedConfig.GetHostname())
+	}
+	if unknown := patchedConfig.ProtoReflect().GetUnknown(); !bytes.Equal(
+		unknown,
+		unknownConfig,
+	) {
+		t.Fatalf("patched config unknown fields = %x, want %x", unknown, unknownConfig)
+	}
 
 	deleted := callManagement(
 		t,
@@ -208,15 +263,20 @@ func callManagement(
 		t.Fatalf("encode %s request: %v", method, err)
 	}
 	var prepared *string
+	var preparedInstanceID *common.UUID
 	if preparedConfig != "" {
 		prepared = &preparedConfig
+	}
+	if request, ok := request.(*manage.RunNetworkInstanceRequest); ok {
+		preparedInstanceID = request.InstId
 	}
 	encodedEnvelope, err := proto.Marshal(&common.HostManagementRequest{
 		Rpc: &common.DirectRpcRequest{
 			FullMethodName: method,
 			Request:        encodedRequest,
 		},
-		PreparedConfig: prepared,
+		PreparedConfig:     prepared,
+		PreparedInstanceId: preparedInstanceID,
 	})
 	if err != nil {
 		t.Fatalf("encode %s envelope: %v", method, err)

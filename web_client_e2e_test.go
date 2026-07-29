@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -75,24 +76,29 @@ func TestWebClientEndToEnd(t *testing.T) {
 	const managedID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 	networkName := "go-host-managed"
 	networkSecret := "test"
+	managedConfig := map[string]any{
+		"instance_id":                    managedID,
+		"dhcp":                           true,
+		"network_name":                   networkName,
+		"network_secret":                 networkSecret,
+		"networking_method":              2,
+		"listener_urls":                  []string{"tcp://0.0.0.0:11010", "udp://0.0.0.0:11010", "wg://0.0.0.0:11011"},
+		"proxy_cidrs":                    []string{"10.200.0.0/24"},
+		"disable_p2p":                    true,
+		"disable_ipv6":                   true,
+		"enable_vpn_portal":              true,
+		"vpn_portal_listen_port":         11012,
+		"vpn_portal_client_network_addr": "10.210.0.0",
+		"vpn_portal_client_network_len":  24,
+		"data_compress_algo":             2,
+		"credential_file":                "/unsupported",
+		"enable_quic_proxy":              true,
+		"mapped_listeners":               []string{"wg://0.0.0.0:11012"},
+		"advanced_settings":              true,
+	}
 	payload, err := json.Marshal(map[string]any{
-		"config": map[string]any{
-			"instance_id":        managedID,
-			"dhcp":               true,
-			"network_name":       networkName,
-			"network_secret":     networkSecret,
-			"networking_method":  2,
-			"listener_urls":      []string{"tcp://0.0.0.0:11010", "udp://0.0.0.0:11010", "wg://0.0.0.0:11011"},
-			"disable_p2p":        true,
-			"disable_ipv6":       true,
-			"enable_vpn_portal":  true,
-			"data_compress_algo": 2,
-			"credential_file":    "/unsupported",
-			"enable_quic_proxy":  true,
-			"mapped_listeners":   []string{"wg://0.0.0.0:11012"},
-			"advanced_settings":  true,
-		},
-		"save": false,
+		"config": managedConfig,
+		"save":   false,
 	})
 	if err != nil {
 		t.Fatalf("encode managed network request: %v", err)
@@ -101,9 +107,11 @@ func TestWebClientEndToEnd(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("run managed instance: status=%d body=%s", status, body)
 	}
+	var managedInstance *corehost.Instance
 	waitFor(t, ctx, func() bool {
 		for _, instance := range host.Instances() {
 			if instance.ID() == managedID {
+				managedInstance = instance
 				return true
 			}
 		}
@@ -126,6 +134,56 @@ func TestWebClientEndToEnd(t *testing.T) {
 		!bytes.Contains(body, []byte("udp://")) ||
 		bytes.Contains(body, []byte("wg://")) {
 		t.Fatalf("collect managed status: status=%d body=%s", status, body)
+	}
+
+	portProbe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve port-forward address: %v", err)
+	}
+	portForwardAddress := portProbe.Addr().String()
+	portForwardPort := portProbe.Addr().(*net.TCPAddr).Port
+	if err := portProbe.Close(); err != nil {
+		t.Fatalf("release port-forward address: %v", err)
+	}
+	managedConfig["proxy_cidrs"] = []string{"10.201.0.0/24"}
+	managedConfig["disable_relay_data"] = true
+	managedConfig["port_forwards"] = []map[string]any{{
+		"proto":     "tcp",
+		"bind_ip":   "127.0.0.1",
+		"bind_port": portForwardPort,
+		"dst_ip":    "10.201.0.1",
+		"dst_port":  80,
+	}}
+	payload, err = json.Marshal(map[string]any{
+		"managed_network_configs": []map[string]any{{
+			"instance_id":    managedID,
+			"network_config": managedConfig,
+		}},
+		"config_revision": "revision-1",
+	})
+	if err != nil {
+		t.Fatalf("encode managed network update: %v", err)
+	}
+	body, status = webRequest(t, ctx, authToken, http.MethodPut, base, payload)
+	if status != http.StatusOK {
+		t.Fatalf("update managed instance: status=%d body=%s", status, body)
+	}
+	waitFor(t, ctx, func() bool {
+		connection, err := net.DialTimeout(
+			"tcp",
+			portForwardAddress,
+			100*time.Millisecond,
+		)
+		if err != nil {
+			return false
+		}
+		connection.Close()
+		return true
+	}, "managed instance hot patch")
+	for _, instance := range host.Instances() {
+		if instance.ID() == managedID && instance != managedInstance {
+			t.Fatal("managed hot patch replaced the running instance")
+		}
 	}
 
 	body, status = webRequest(
