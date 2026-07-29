@@ -3,11 +3,16 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"io"
 	"net"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
+
+	corehost "github.com/EasyTier/easytier-go-host"
+	"github.com/EasyTier/easytier-go-host/proto/common"
 )
 
 func TestParseOptions(t *testing.T) {
@@ -18,12 +23,14 @@ func TestParseOptions(t *testing.T) {
 		"--ipv4", "10.144.0.10/24",
 		"--network", "udp4",
 		"--address", "10.144.0.20:7000",
+		"--connect-timeout", "3s",
 	})
 	if err != nil {
 		t.Fatalf("parse options: %v", err)
 	}
 	if options.network != "udp4" ||
 		options.address != "10.144.0.20:7000" ||
+		options.connectTimeout != 3*time.Second ||
 		len(options.peers) != 1 {
 		t.Fatalf("parsed options = %+v", options)
 	}
@@ -58,6 +65,11 @@ func TestParseOptionsRejectsInvalidArguments(t *testing.T) {
 			},
 			want: "--address",
 		},
+		{
+			name:      "connect timeout",
+			arguments: append(append([]string(nil), valid...), "--connect-timeout", "0s"),
+			want:      "--connect-timeout",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -66,6 +78,30 @@ func TestParseOptionsRejectsInvalidArguments(t *testing.T) {
 				t.Fatalf("parse error = %v, want containing %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestRoutesReachOverlayOrProxyDestination(t *testing.T) {
+	overlay := netip.MustParseAddr("10.144.0.20")
+	overlayOctets := overlay.As4()
+	routes := []*corehost.Route{
+		{
+			Ipv4Addr: &common.Ipv4Inet{
+				Address: &common.Ipv4Addr{
+					Addr: binary.BigEndian.Uint32(overlayOctets[:]),
+				},
+			},
+		},
+		{ProxyCidrs: []string{"10.200.0.0/24"}},
+	}
+	if !routesReach(routes, overlay) {
+		t.Fatal("overlay destination was not reachable")
+	}
+	if !routesReach(routes, netip.MustParseAddr("10.200.0.8")) {
+		t.Fatal("proxy destination was not reachable")
+	}
+	if routesReach(routes, netip.MustParseAddr("10.201.0.8")) {
+		t.Fatal("unknown destination was reachable")
 	}
 }
 

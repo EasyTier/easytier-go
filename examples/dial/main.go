@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	corehost "github.com/EasyTier/easytier-go-host"
 )
@@ -34,12 +36,13 @@ func (peers *peerList) String() string {
 }
 
 type options struct {
-	peers         peerList
-	networkName   string
-	networkSecret string
-	ipv4          string
-	network       string
-	address       string
+	peers          peerList
+	networkName    string
+	networkSecret  string
+	ipv4           string
+	network        string
+	address        string
+	connectTimeout time.Duration
 }
 
 func main() {
@@ -73,6 +76,12 @@ func parseOptions(arguments []string) (options, error) {
 	flags.StringVar(&options.ipv4, "ipv4", "", "fixed EasyTier IPv4 address and prefix")
 	flags.StringVar(&options.network, "network", "tcp4", "overlay network: tcp4 or udp4")
 	flags.StringVar(&options.address, "address", "", "overlay IPv4 destination")
+	flags.DurationVar(
+		&options.connectTimeout,
+		"connect-timeout",
+		10*time.Second,
+		"time to wait for an overlay route and connection",
+	)
 	if err := flags.Parse(arguments); err != nil {
 		return options, err
 	}
@@ -104,6 +113,9 @@ func (options options) validate() error {
 	}
 	if options.network != "tcp4" && options.network != "udp4" {
 		return fmt.Errorf("--network must be tcp4 or udp4")
+	}
+	if options.connectTimeout <= 0 {
+		return fmt.Errorf("--connect-timeout must be positive")
 	}
 	address, err := netip.ParseAddrPort(options.address)
 	if err != nil || !address.Addr().Is4() || address.Port() == 0 {
@@ -145,7 +157,19 @@ func run(
 		return fmt.Errorf("start EasyTier instance: %w", err)
 	}
 
-	connection, err := instance.Dial(ctx, options.network, options.address)
+	target := netip.MustParseAddrPort(options.address)
+	connectContext, cancelConnect := context.WithTimeout(ctx, options.connectTimeout)
+	defer cancelConnect()
+	if target.Addr() != prefix.Addr() {
+		if err := waitForRoute(connectContext, instance, target.Addr()); err != nil {
+			return fmt.Errorf("wait for overlay route to %s: %w", target.Addr(), err)
+		}
+	}
+	connection, err := instance.Dial(
+		connectContext,
+		options.network,
+		options.address,
+	)
 	if err != nil {
 		return err
 	}
@@ -166,6 +190,46 @@ func run(
 		return nil
 	}
 	return err
+}
+
+func waitForRoute(
+	ctx context.Context,
+	instance *corehost.Instance,
+	target netip.Addr,
+) error {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		routes, err := instance.ListRoute(ctx)
+		if err != nil {
+			return err
+		}
+		if routesReach(routes, target) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func routesReach(routes []*corehost.Route, target netip.Addr) bool {
+	octets := target.As4()
+	targetValue := binary.BigEndian.Uint32(octets[:])
+	for _, route := range routes {
+		if route.GetIpv4Addr().GetAddress().GetAddr() == targetValue {
+			return true
+		}
+		for _, cidr := range route.GetProxyCidrs() {
+			prefix, err := netip.ParsePrefix(cidr)
+			if err == nil && prefix.Contains(target) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func relayTCP(connection net.Conn, input io.Reader, output io.Writer) error {

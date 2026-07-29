@@ -198,7 +198,9 @@ printf 'GET / HTTP/1.0\r\nHost: 10.144.0.20\r\n\r\n' |
 
 With `--network udp4`, standard input is sent as one datagram and one response
 datagram is written to standard output. The command does not create a local
-listener or implement port-forward management.
+listener or implement port-forward management. It waits up to 10 seconds for a
+matching overlay or proxy route before dialing; override that limit with
+`--connect-timeout`.
 
 ## Web Client example
 
