@@ -13,6 +13,9 @@ after result, and any profile evidence used to choose the next change.
 - Native peer: `10.15.15.1`, listening on underlay UDP port `12012`.
 - Go host: `10.15.15.2`, forwarding local port `5202` through
   `Instance.Dial` to `10.15.15.1:5201`.
+- Go forwarder: `go run ./cmd/dial-forward-bench`; it intentionally keeps
+  forwarding outside the Core so measurements include the public data-plane
+  ABI.
 - MTU: 1380; encryption enabled with the default algorithm.
 - TCP tests use one stream unless noted otherwise.
 - UDP tests use 1200-byte datagrams.

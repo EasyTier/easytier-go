@@ -32,6 +32,21 @@ type HolePunchingPolicy struct {
 	SymmetricUDP bool
 }
 
+// PortForwardProtocol identifies the transport used by a port-forward rule.
+type PortForwardProtocol string
+
+const (
+	PortForwardTCP PortForwardProtocol = "tcp"
+	PortForwardUDP PortForwardProtocol = "udp"
+)
+
+// PortForwardConfig exposes a host socket through the EasyTier data plane.
+type PortForwardConfig struct {
+	Protocol    PortForwardProtocol
+	Bind        netip.AddrPort
+	Destination netip.AddrPort
+}
+
 // InstanceConfig is an immutable EasyTier instance configuration.
 //
 // Its zero value is invalid. Construct one with InstanceConfigBuilder.
@@ -54,6 +69,7 @@ type instanceConfigDocument struct {
 	ipv4             *netip.Prefix
 	peers            []string
 	listeners        []string
+	portForwards     []PortForwardConfig
 	stunServers      []string
 	stunServersSet   bool
 	stunServersV6    []string
@@ -120,6 +136,14 @@ func (builder *InstanceConfigBuilder) AddListeners(
 	uris ...string,
 ) *InstanceConfigBuilder {
 	builder.document.listeners = append(builder.document.listeners, uris...)
+	return builder
+}
+
+// AddPortForwards appends TCP or UDP host-to-overlay forwarding rules.
+func (builder *InstanceConfigBuilder) AddPortForwards(
+	forwards ...PortForwardConfig,
+) *InstanceConfigBuilder {
+	builder.document.portForwards = append(builder.document.portForwards, forwards...)
 	return builder
 }
 
@@ -208,6 +232,9 @@ func (builder *InstanceConfigBuilder) Build() (InstanceConfig, error) {
 		return InstanceConfig{}, err
 	}
 	if err := normalizeEndpoints(document.listeners, true, "listeners"); err != nil {
+		return InstanceConfig{}, err
+	}
+	if err := validatePortForwards(document.portForwards); err != nil {
 		return InstanceConfig{}, err
 	}
 	if document.stunServersSet {
@@ -329,6 +356,44 @@ func validateIPv4(prefix *netip.Prefix) error {
 			"ipv4",
 			"must include a network prefix shorter than /32",
 		)
+	}
+	return nil
+}
+
+func validatePortForwards(forwards []PortForwardConfig) error {
+	seen := make(map[PortForwardConfig]struct{}, len(forwards))
+	for index, forward := range forwards {
+		field := fmt.Sprintf("port_forwards[%d]", index)
+		if forward.Protocol != PortForwardTCP &&
+			forward.Protocol != PortForwardUDP {
+			return invalidInstanceConfig(
+				field+".protocol",
+				"must be TCP or UDP",
+			)
+		}
+		if !forward.Bind.IsValid() || !forward.Bind.Addr().Is4() {
+			return invalidInstanceConfig(
+				field+".bind",
+				"must be a valid IPv4 socket address",
+			)
+		}
+		if !forward.Destination.IsValid() ||
+			!forward.Destination.Addr().Is4() {
+			return invalidInstanceConfig(
+				field+".destination",
+				"must be a valid IPv4 socket address",
+			)
+		}
+		if forward.Destination.Port() == 0 {
+			return invalidInstanceConfig(
+				field+".destination",
+				"port must not be zero",
+			)
+		}
+		if _, exists := seen[forward]; exists {
+			return invalidInstanceConfig(field, "duplicates another port forward")
+		}
+		seen[forward] = struct{}{}
 	}
 	return nil
 }
@@ -504,6 +569,7 @@ func (document instanceConfigDocument) clone() instanceConfigDocument {
 	cloned := document
 	cloned.peers = append([]string(nil), document.peers...)
 	cloned.listeners = append([]string(nil), document.listeners...)
+	cloned.portForwards = append([]PortForwardConfig(nil), document.portForwards...)
 	cloned.stunServers = append([]string(nil), document.stunServers...)
 	cloned.stunServersV6 = append([]string(nil), document.stunServersV6...)
 	cloned.securePrivateKey = append([]byte(nil), document.securePrivateKey...)

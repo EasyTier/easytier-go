@@ -43,6 +43,17 @@ func encodeInstanceConfig(config InstanceConfig) (string, error) {
 		writeTOMLStringField(&encoded, "uri", peer)
 	}
 
+	for _, forward := range document.portForwards {
+		encoded.WriteString("\n[[port_forward]]\n")
+		writeTOMLStringField(&encoded, "bind_addr", forward.Bind.String())
+		writeTOMLStringField(
+			&encoded,
+			"dst_addr",
+			forward.Destination.String(),
+		)
+		writeTOMLStringField(&encoded, "proto", string(forward.Protocol))
+	}
+
 	if document.encryption != nil ||
 		document.p2p != nil ||
 		document.holePunching != nil {

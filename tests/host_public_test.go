@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"strings"
@@ -132,6 +133,118 @@ func TestPublicFacadeConnectsTwoCoresAndExchangesPacket(t *testing.T) {
 	if err := server.Stop(ctx); err != nil {
 		t.Fatalf("stop server: %v", err)
 	}
+}
+
+func TestPublicConfigUsesCoreTCPPortForward(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	sockets := &recordingSocketFactory{}
+	host, err := corehost.New(ctx, corehost.Options{
+		Platform: platform.Services{Sockets: sockets},
+	})
+	if err != nil {
+		t.Fatalf("create host: %v", err)
+	}
+	defer host.Close(ctx)
+
+	server, err := host.CreateInstance(
+		ctx,
+		instanceConfig(t, 201, "10.144.0.201", 0, false, true),
+	)
+	if err != nil {
+		t.Fatalf("create server: %v", err)
+	}
+	defer server.Close(ctx)
+	if err := server.Start(ctx); err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	underlayPort := sockets.listenerPort(t)
+	overlayListener := listenTCPEventually(t, ctx, server)
+	defer overlayListener.Close()
+	go func() {
+		for {
+			connection, acceptErr := overlayListener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			go func() {
+				defer connection.Close()
+				_, _ = io.Copy(connection, connection)
+			}()
+		}
+	}()
+
+	probe, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve port-forward address: %v", err)
+	}
+	forwardAddress := netip.MustParseAddrPort(probe.Addr().String())
+	if err := probe.Close(); err != nil {
+		t.Fatalf("release port-forward address: %v", err)
+	}
+	destination := netip.AddrPortFrom(
+		netip.MustParseAddr("10.144.0.201"),
+		uint16(overlayListener.Addr().(*net.TCPAddr).Port),
+	)
+	clientConfig, err := corehost.NewInstanceConfigBuilder("default").
+		NetworkSecret("test").
+		Hostname("go-host-202").
+		IPv4(netip.MustParsePrefix("10.144.0.202/24")).
+		AddPeers(fmt.Sprintf("tcp://127.0.0.1:%d", underlayPort)).
+		AddPortForwards(corehost.PortForwardConfig{
+			Protocol:    corehost.PortForwardTCP,
+			Bind:        forwardAddress,
+			Destination: destination,
+		}).
+		P2P(corehost.P2PPolicy{Disable: true}).
+		Encryption(false).
+		Build()
+	if err != nil {
+		t.Fatalf("build client config: %v", err)
+	}
+	client, err := host.CreateInstance(ctx, clientConfig)
+	if err != nil {
+		t.Fatalf("create client: %v", err)
+	}
+	defer client.Close(ctx)
+	if err := client.Start(ctx); err != nil {
+		t.Fatalf("start client: %v", err)
+	}
+
+	payload := []byte("core-owned-port-forward")
+	var lastErr error
+	forwardDeadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(forwardDeadline) {
+		connection, dialErr := net.DialTimeout(
+			"tcp4",
+			forwardAddress.String(),
+			200*time.Millisecond,
+		)
+		if dialErr == nil {
+			_ = connection.SetDeadline(time.Now().Add(time.Second))
+			_, writeErr := connection.Write(payload)
+			response := make([]byte, len(payload))
+			_, readErr := io.ReadFull(connection, response)
+			_ = connection.Close()
+			if writeErr == nil && readErr == nil &&
+				string(response) == string(payload) {
+				return
+			}
+			if writeErr == nil && readErr == nil {
+				lastErr = fmt.Errorf("forwarded response = %q", response)
+			} else {
+				lastErr = errors.Join(writeErr, readErr)
+			}
+		} else {
+			lastErr = dialErr
+		}
+		select {
+		case <-time.After(20 * time.Millisecond):
+		case <-ctx.Done():
+			t.Fatalf("wait for core port forward: %v", ctx.Err())
+		}
+	}
+	t.Fatalf("core TCP port forward did not carry traffic: %v", lastErr)
 }
 
 func TestPublicEventStreamClosesWithInstance(t *testing.T) {

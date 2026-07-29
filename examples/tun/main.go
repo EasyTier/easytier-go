@@ -8,14 +8,12 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/netip"
 	"os"
 	"os/signal"
 	"runtime"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -67,6 +65,7 @@ func run(ctx context.Context, options options) error {
 		NetworkSecret(options.networkSecret).
 		IPv4(prefix).
 		AddPeers([]string(options.peers)...).
+		AddPortForwards([]corehost.PortForwardConfig(options.portForwards)...).
 		Build()
 	if err != nil {
 		return fmt.Errorf("build EasyTier instance config: %w", err)
@@ -92,15 +91,6 @@ func run(ctx context.Context, options options) error {
 		return fmt.Errorf("start EasyTier instance: %w", err)
 	}
 	startManagementSignals(ctx, instance)
-	forwarders, err := startPortForwards(
-		ctx,
-		instance.Dial,
-		options.portForwards,
-	)
-	if err != nil {
-		return err
-	}
-	defer forwarders.Close()
 	log.Printf(
 		"connected %s to EasyTier network %q as %s",
 		deviceName,
@@ -386,17 +376,7 @@ func copyEasyTierToTun(
 
 // Optional port forwarding
 
-type portForwardRule struct {
-	protocol string
-	bind     netip.AddrPort
-	target   netip.AddrPort
-}
-
-func (rule portForwardRule) String() string {
-	return fmt.Sprintf("%s://%s/%s", rule.protocol, rule.bind, rule.target)
-}
-
-type portForwardList []portForwardRule
+type portForwardList []corehost.PortForwardConfig
 
 func (rules *portForwardList) Set(value string) error {
 	rule, err := parsePortForwardRule(value)
@@ -409,179 +389,53 @@ func (rules *portForwardList) Set(value string) error {
 func (rules *portForwardList) String() string {
 	values := make([]string, len(*rules))
 	for index, rule := range *rules {
-		values[index] = rule.String()
+		values[index] = fmt.Sprintf(
+			"%s://%s/%s",
+			rule.Protocol,
+			rule.Bind,
+			rule.Destination,
+		)
 	}
 	return strings.Join(values, ",")
 }
 
-func parsePortForwardRule(value string) (portForwardRule, error) {
-	protocol, addresses, ok := strings.Cut(value, "://")
-	if !ok || (protocol != "tcp" && protocol != "udp") {
-		return portForwardRule{}, fmt.Errorf(
+func parsePortForwardRule(value string) (corehost.PortForwardConfig, error) {
+	protocolText, addresses, ok := strings.Cut(value, "://")
+	if !ok || (protocolText != "tcp" && protocolText != "udp") {
+		return corehost.PortForwardConfig{}, fmt.Errorf(
 			"port forward %q must use tcp:// or udp://",
 			value,
 		)
 	}
 	bindText, targetText, ok := strings.Cut(addresses, "/")
 	if !ok {
-		return portForwardRule{}, fmt.Errorf(
+		return corehost.PortForwardConfig{}, fmt.Errorf(
 			"port forward %q must contain bind/overlay-target",
 			value,
 		)
 	}
 	bind, err := netip.ParseAddrPort(bindText)
 	if err != nil {
-		return portForwardRule{}, fmt.Errorf("parse bind address: %w", err)
+		return corehost.PortForwardConfig{}, fmt.Errorf("parse bind address: %w", err)
 	}
 	target, err := netip.ParseAddrPort(targetText)
 	if err != nil {
-		return portForwardRule{}, fmt.Errorf("parse target address: %w", err)
+		return corehost.PortForwardConfig{}, fmt.Errorf("parse target address: %w", err)
 	}
 	if !bind.Addr().Is4() || !target.Addr().Is4() {
-		return portForwardRule{}, fmt.Errorf("port forward requires IPv4 addresses")
+		return corehost.PortForwardConfig{}, fmt.Errorf(
+			"port forward requires IPv4 addresses",
+		)
 	}
-	return portForwardRule{protocol: protocol, bind: bind, target: target}, nil
-}
-
-type overlayDialFunc func(context.Context, string, string) (net.Conn, error)
-
-type portForwardSet struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	dial      overlayDialFunc
-	addresses []net.Addr
-	closers   []io.Closer
-}
-
-func startPortForwards(
-	ctx context.Context,
-	dial overlayDialFunc,
-	rules []portForwardRule,
-) (*portForwardSet, error) {
-	if dial == nil {
-		return nil, fmt.Errorf("port forward dial function is nil")
+	protocol := corehost.PortForwardTCP
+	if protocolText == "udp" {
+		protocol = corehost.PortForwardUDP
 	}
-	forwardContext, cancel := context.WithCancel(ctx)
-	forwards := &portForwardSet{
-		ctx:    forwardContext,
-		cancel: cancel,
-		dial:   dial,
-	}
-	for _, rule := range rules {
-		var err error
-		switch rule.protocol {
-		case "tcp":
-			err = forwards.startTCP(rule)
-		case "udp":
-			err = forwards.startUDP(rule)
-		default:
-			err = fmt.Errorf("unsupported protocol %q", rule.protocol)
-		}
-		if err != nil {
-			_ = forwards.Close()
-			return nil, fmt.Errorf("start port forward %s: %w", rule, err)
-		}
-	}
-	return forwards, nil
-}
-
-func (forwards *portForwardSet) Close() error {
-	forwards.cancel()
-	var errs []error
-	for _, closer := range forwards.closers {
-		errs = append(errs, closer.Close())
-	}
-	return errors.Join(errs...)
-}
-
-func (forwards *portForwardSet) startTCP(rule portForwardRule) error {
-	listener, err := net.ListenTCP("tcp4", net.TCPAddrFromAddrPort(rule.bind))
-	if err != nil {
-		return err
-	}
-	forwards.closers = append(forwards.closers, listener)
-	forwards.addresses = append(forwards.addresses, listener.Addr())
-	log.Printf("forwarding tcp://%s to %s through EasyTier", listener.Addr(), rule.target)
-	go func() {
-		for {
-			local, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			go func(local net.Conn) {
-				defer local.Close()
-				overlay, err := forwards.dial(
-					forwards.ctx,
-					"tcp4",
-					rule.target.String(),
-				)
-				if err != nil {
-					return
-				}
-				defer overlay.Close()
-				stopClose := context.AfterFunc(forwards.ctx, func() {
-					_ = local.Close()
-					_ = overlay.Close()
-				})
-				defer stopClose()
-
-				done := make(chan struct{}, 2)
-				go func() { _, _ = io.Copy(overlay, local); done <- struct{}{} }()
-				go func() { _, _ = io.Copy(local, overlay); done <- struct{}{} }()
-				<-done
-			}(local)
-		}
-	}()
-	return nil
-}
-
-func (forwards *portForwardSet) startUDP(rule portForwardRule) error {
-	overlay, err := forwards.dial(
-		forwards.ctx,
-		"udp4",
-		rule.target.String(),
-	)
-	if err != nil {
-		return err
-	}
-	listener, err := net.ListenUDP("udp4", net.UDPAddrFromAddrPort(rule.bind))
-	if err != nil {
-		_ = overlay.Close()
-		return err
-	}
-	forwards.closers = append(forwards.closers, listener, overlay)
-	forwards.addresses = append(forwards.addresses, listener.LocalAddr())
-	log.Printf("forwarding udp://%s to %s through EasyTier", listener.LocalAddr(), rule.target)
-
-	var lastClient atomic.Value
-	go func() {
-		packet := make([]byte, 65535)
-		for {
-			length, client, err := listener.ReadFromUDPAddrPort(packet)
-			if err != nil {
-				return
-			}
-			lastClient.Store(client)
-			if written, err := overlay.Write(packet[:length]); err != nil ||
-				written != length {
-				return
-			}
-		}
-	}()
-	go func() {
-		packet := make([]byte, 65535)
-		for {
-			length, err := overlay.Read(packet)
-			if err != nil {
-				return
-			}
-			client, ok := lastClient.Load().(netip.AddrPort)
-			if ok {
-				_, _ = listener.WriteToUDPAddrPort(packet[:length], client)
-			}
-		}
-	}()
-	return nil
+	return corehost.PortForwardConfig{
+		Protocol:    protocol,
+		Bind:        bind,
+		Destination: target,
+	}, nil
 }
 
 // Command-line options

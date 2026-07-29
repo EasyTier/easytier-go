@@ -32,6 +32,18 @@ func TestInstanceConfigEncodesSupportedSettings(t *testing.T) {
 			"tcp://0.0.0.0:11010",
 			"udp://[::]:0",
 		).
+		AddPortForwards(
+			PortForwardConfig{
+				Protocol:    PortForwardTCP,
+				Bind:        netip.MustParseAddrPort("127.0.0.1:5202"),
+				Destination: netip.MustParseAddrPort("10.144.0.20:5201"),
+			},
+			PortForwardConfig{
+				Protocol:    PortForwardUDP,
+				Bind:        netip.MustParseAddrPort("0.0.0.0:5203"),
+				Destination: netip.MustParseAddrPort("10.144.0.21:5201"),
+			},
+		).
 		STUNServers(
 			"stun.example.com",
 			"192.0.2.1:3478",
@@ -73,6 +85,16 @@ uri = "tcp://peer.example.com:11010"
 
 [[peer]]
 uri = "udp://203.0.113.20"
+
+[[port_forward]]
+bind_addr = "127.0.0.1:5202"
+dst_addr = "10.144.0.20:5201"
+proto = "tcp"
+
+[[port_forward]]
+bind_addr = "0.0.0.0:5203"
+dst_addr = "10.144.0.21:5201"
+proto = "udp"
 
 [flags]
 enable_encryption = false
@@ -287,6 +309,63 @@ func TestInstanceConfigValidation(t *testing.T) {
 				return err
 			},
 			wantField: "listeners[0]",
+		},
+		{
+			name: "unsupported port forward protocol",
+			build: func() error {
+				_, err := validInstanceConfigBuilder().
+					AddPortForwards(PortForwardConfig{
+						Protocol:    "sctp",
+						Bind:        netip.MustParseAddrPort("127.0.0.1:5202"),
+						Destination: netip.MustParseAddrPort("10.144.0.20:5201"),
+					}).
+					Build()
+				return err
+			},
+			wantField: "port_forwards[0].protocol",
+		},
+		{
+			name: "IPv6 port forward bind",
+			build: func() error {
+				_, err := validInstanceConfigBuilder().
+					AddPortForwards(PortForwardConfig{
+						Protocol:    PortForwardTCP,
+						Bind:        netip.MustParseAddrPort("[::1]:5202"),
+						Destination: netip.MustParseAddrPort("10.144.0.20:5201"),
+					}).
+					Build()
+				return err
+			},
+			wantField: "port_forwards[0].bind",
+		},
+		{
+			name: "zero port forward destination port",
+			build: func() error {
+				_, err := validInstanceConfigBuilder().
+					AddPortForwards(PortForwardConfig{
+						Protocol:    PortForwardUDP,
+						Bind:        netip.MustParseAddrPort("127.0.0.1:5202"),
+						Destination: netip.MustParseAddrPort("10.144.0.20:0"),
+					}).
+					Build()
+				return err
+			},
+			wantField: "port_forwards[0].destination",
+		},
+		{
+			name: "duplicate port forward",
+			build: func() error {
+				forward := PortForwardConfig{
+					Protocol:    PortForwardTCP,
+					Bind:        netip.MustParseAddrPort("127.0.0.1:5202"),
+					Destination: netip.MustParseAddrPort("10.144.0.20:5201"),
+				}
+				_, err := validInstanceConfigBuilder().
+					AddPortForwards(forward, forward).
+					Build()
+				return err
+			},
+			wantField: "port_forwards[1]",
 		},
 		{
 			name: "IPv6 literal in IPv4 STUN list",

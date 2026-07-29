@@ -99,10 +99,15 @@ the pending guest operation.
 
 `InstanceConfigBuilder` exposes the instance settings supported by this host:
 network identity, hostname, virtual IPv4 address, peers and listeners, IPv4 and
-IPv6 STUN servers, P2P policy, hole-punching methods, encryption, and secure
-mode. Omitted optional settings retain the embedded core's defaults. Calling
-`STUNServers()` or `STUNServersV6()` with no arguments explicitly selects an
-empty list.
+IPv6 STUN servers, Core-owned TCP and UDP port forwards, P2P policy,
+hole-punching methods, encryption, and secure mode. Omitted optional settings
+retain the embedded core's defaults. Calling `STUNServers()` or
+`STUNServersV6()` with no arguments explicitly selects an empty list.
+
+`AddPortForwards` accepts typed rules containing a `PortForwardTCP` or
+`PortForwardUDP` protocol and `netip.AddrPort` bind and destination addresses.
+The embedded core owns their listener, overlay-flow, reload, and shutdown
+lifecycle.
 
 Secure mode can generate an X25519 key with `SecureMode()` or use a caller
 supplied raw 32-byte private key with `SecureModeWithPrivateKey(key)`. The
@@ -155,8 +160,8 @@ interface. The example does not install a default route or enable GSO.
 On Linux and macOS, send `SIGUSR1` to print the current peer list or `SIGUSR2`
 to print the current route list.
 
-Repeat `-port-forward` to expose local TCP or UDP ports through the instance's
-`Dial` interface:
+Repeat `-port-forward` to expose local TCP or UDP ports through the embedded
+core's port-forward manager:
 
 ```sh
 sudo go run . \
@@ -170,8 +175,30 @@ sudo go run . \
 
 For example, run `iperf3 -c 127.0.0.1 -p 5202` for TCP or add
 `-u -b 0 -l 1200` for UDP. iperf3's UDP mode still needs the TCP forward for
-its control connection. UDP forwarding uses one overlay connection per rule;
-replies are sent to the local client that most recently sent a packet.
+its control connection. The TUN example only parses these rules into the
+instance configuration; the core owns the host listeners and per-client
+overlay flows.
+
+## Instance.Dial example
+
+The Dial example is a small overlay client dedicated to the public
+`Instance.Dial` API. TCP mode bridges the connected stream to standard input
+and output until the remote side closes or the command is interrupted:
+
+```sh
+printf 'GET / HTTP/1.0\r\nHost: 10.144.0.20\r\n\r\n' |
+  go run ./examples/dial \
+    -p tcp://198.51.100.10:11010 \
+    --network-name office \
+    --network-secret secret \
+    --ipv4 10.144.0.10/24 \
+    --network tcp4 \
+    --address 10.144.0.20:8080
+```
+
+With `--network udp4`, standard input is sent as one datagram and one response
+datagram is written to standard output. The command does not create a local
+listener or implement port-forward management.
 
 ## Web Client example
 
@@ -206,16 +233,20 @@ Node A and the iperf3 server are pinned to CPUs `0,2,4,6`, node B to
 3 seconds. Forward means node B sends to node A; reverse uses `iperf3 -R`.
 Measured 2026-07-28.
 
+The forwarding rows deliberately compare native Core port forwarding with the
+Go host's benchmark-only `cmd/dial-forward-bench`, which carries traffic
+through the public `Instance.Dial` API.
+
 TCP, one stream:
 
 | Scenario | Direction | `tcp://` native | `tcp://` Go host | `udp://` native | `udp://` Go host |
 | --- | --- | ---: | ---: | ---: | ---: |
 | TUN | forward | 6.06 Gbit/s | 2.12 Gbit/s | 3.71 Gbit/s | 1.57 Gbit/s |
 | TUN | reverse | 6.03 Gbit/s | 2.57 Gbit/s | 3.69 Gbit/s | 1.48 Gbit/s |
-| Port forward | forward | 1.25 Gbit/s | 1.29 Gbit/s | 1.19 Gbit/s | 1.20 Gbit/s |
-| Port forward | reverse | 6.49 Gbit/s | 1.95 Gbit/s | 4.26 Gbit/s | 1.43 Gbit/s |
+| Native port forward / Go Dial | forward | 1.25 Gbit/s | 1.29 Gbit/s | 1.19 Gbit/s | 1.20 Gbit/s |
+| Native port forward / Go Dial | reverse | 6.49 Gbit/s | 1.95 Gbit/s | 4.26 Gbit/s | 1.43 Gbit/s |
 
-UDP port forward, 1 Gbit/s offered with 1200-byte datagrams
+UDP native port forward / Go Dial, 1 Gbit/s offered with 1200-byte datagrams
 (received / lost):
 
 | Direction | `tcp://` native | `tcp://` Go host | `udp://` native | `udp://` Go host |
@@ -228,11 +259,11 @@ Reading the numbers:
 - On TUN the Go host reaches roughly 35-45% of native single-stream
   throughput. Both sides run the same EasyTier core logic, so the gap is the
   WASM/Go data-plane boundary rather than routing or cryptography.
-- Port-forward TCP forward is a tie at about 1.2 Gbit/s: both sides are
-  bounded by the virtual TCP send path inside the shared EasyTier core, not
-  by the host.
-- Port-forward TCP reverse favors native by about 3x (4.3-6.5 versus
-  1.4-2.0 Gbit/s); the Go host's per-operation receive path is the limit.
+- TCP forwarding is a tie at about 1.2 Gbit/s: both paths are bounded by the
+  virtual TCP send path inside the shared EasyTier core, not by the host.
+- TCP reverse forwarding favors native by about 3x (4.3-6.5 versus
+  1.4-2.0 Gbit/s); the Go host benchmark's per-operation receive path is the
+  limit.
 - Native sustains the offered 1 Gbit/s UDP nearly loss-free in both
   directions, while the Go host saturates at 350-700 Mbit/s with significant
   loss, consistent with the one-operation-per-datagram data-plane ABI
