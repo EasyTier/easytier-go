@@ -114,7 +114,7 @@ func (reactor *Reactor) TakeTCPAccept(operation uint64) (StreamResult, error) {
 	delete(reactor.accepts, operation)
 	reactor.releaseOperationLocked(operation, operationAccept)
 	handle := reactor.allocateHandleLocked()
-	reactor.streams[handle] = connection
+	reactor.streams[handle] = newStreamState(connection)
 	startWorker := len(state.accepted) == 0 &&
 		!state.acceptRunning &&
 		reactor.hasAcceptWaiterLocked(waiter.handle)

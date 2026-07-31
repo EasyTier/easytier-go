@@ -135,7 +135,7 @@ func (reactor *Reactor) TakeTCPConnect(operation uint64) (StreamResult, error) {
 		return StreamResult{}, err
 	}
 	handle := reactor.allocateHandleLocked()
-	reactor.streams[handle] = create.connection
+	reactor.streams[handle] = newStreamState(create.connection)
 	result := StreamResult{Handle: handle, Local: create.localAddr, Peer: create.peerAddr}
 	create.connection = nil
 	reactor.mu.Unlock()

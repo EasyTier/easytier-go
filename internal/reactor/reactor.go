@@ -53,7 +53,7 @@ type Reactor struct {
 	managementHandler ManagementHandler
 
 	operations        map[uint64]operationKind
-	streams           map[uint64]net.Conn
+	streams           map[uint64]*streamState
 	datagrams         map[uint64]*datagramState
 	drainingDatagrams map[*datagramState]struct{}
 	listeners         map[uint64]*listenerState
@@ -85,7 +85,7 @@ func New(parent context.Context, options Options) *Reactor {
 		services:          options.Services,
 		managementHandler: options.Management,
 		operations:        make(map[uint64]operationKind),
-		streams:           make(map[uint64]net.Conn, len(options.InitialStreams)),
+		streams:           make(map[uint64]*streamState, len(options.InitialStreams)),
 		datagrams:         make(map[uint64]*datagramState, len(options.InitialDatagrams)),
 		drainingDatagrams: make(map[*datagramState]struct{}),
 		listeners:         make(map[uint64]*listenerState),
@@ -103,7 +103,7 @@ func New(parent context.Context, options Options) *Reactor {
 		management:        make(map[uint64]*managementOperation),
 	}
 	for handle, connection := range options.InitialStreams {
-		reactor.streams[handle] = connection
+		reactor.streams[handle] = newStreamState(connection)
 	}
 	for handle, connection := range options.InitialDatagrams {
 		state := newDatagramState(connection)
@@ -160,11 +160,13 @@ func (reactor *Reactor) CancelOperation(id uint64) error {
 
 	var cancel context.CancelFunc
 	var resource ioResource
+	var readTask streamReadTask
+	var signalCompletion bool
 	switch kind {
 	case operationRead:
-		delete(reactor.reads, id)
+		readTask, signalCompletion = reactor.cancelStreamReadLocked(id)
 	case operationWrite:
-		delete(reactor.writes, id)
+		reactor.cancelStreamWriteLocked(id)
 	case operationUDPRead:
 		delete(reactor.udpReads, id)
 	case operationUDPWrite:
@@ -203,6 +205,10 @@ func (reactor *Reactor) CancelOperation(id uint64) error {
 		return fmt.Errorf("%w: unknown operation kind %d", ErrInvalid, kind)
 	}
 	reactor.mu.Unlock()
+	readTask.launch(reactor)
+	if signalCompletion {
+		reactor.signalCompletion()
+	}
 	if cancel != nil {
 		cancel()
 	}
@@ -220,6 +226,10 @@ func (reactor *Reactor) CloseHandle(handle uint64) error {
 	reactor.mu.Lock()
 	stream := reactor.streams[handle]
 	delete(reactor.streams, handle)
+	streamCompletion := false
+	if stream != nil {
+		streamCompletion = reactor.closeStreamLocked(stream)
+	}
 	datagram := reactor.datagrams[handle]
 	delete(reactor.datagrams, handle)
 	if datagram != nil {
@@ -228,13 +238,16 @@ func (reactor *Reactor) CloseHandle(handle uint64) error {
 	listener := reactor.listeners[handle]
 	delete(reactor.listeners, handle)
 	reactor.mu.Unlock()
+	if streamCompletion {
+		reactor.signalCompletion()
+	}
 
 	if stream == nil && datagram == nil && listener == nil {
 		return nil
 	}
 	var closeErrors []error
 	if stream != nil {
-		if err := stream.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		if err := stream.connection.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 			closeErrors = append(closeErrors, err)
 		}
 	}
@@ -271,9 +284,12 @@ func (reactor *Reactor) Close() {
 	dnsOperations := reactor.dns
 	environmentOperations := reactor.environments
 	managementOperations := reactor.management
+	for _, stream := range streams {
+		stream.shutdownLocked()
+	}
 
 	reactor.operations = make(map[uint64]operationKind)
-	reactor.streams = make(map[uint64]net.Conn)
+	reactor.streams = make(map[uint64]*streamState)
 	reactor.datagrams = make(map[uint64]*datagramState)
 	reactor.drainingDatagrams = make(map[*datagramState]struct{})
 	reactor.listeners = make(map[uint64]*listenerState)
@@ -292,7 +308,7 @@ func (reactor *Reactor) Close() {
 	reactor.mu.Unlock()
 
 	for _, stream := range streams {
-		_ = stream.Close()
+		_ = stream.connection.Close()
 	}
 	for _, datagram := range datagrams {
 		datagram.closeNow()
