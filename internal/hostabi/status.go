@@ -3,7 +3,7 @@ package hostabi
 import (
 	"errors"
 
-	"github.com/EasyTier/easytier-go-host/internal/reactor"
+	"github.com/EasyTier/easytier-go/internal/reactor"
 )
 
 const (

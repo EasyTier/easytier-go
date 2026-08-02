@@ -7,13 +7,14 @@ import (
 	"net/netip"
 	"strconv"
 
-	"github.com/EasyTier/easytier-go-host/internal/artifact"
-	"github.com/EasyTier/easytier-go-host/internal/coreabi"
-	"github.com/EasyTier/easytier-go-host/internal/engine"
-	"github.com/EasyTier/easytier-go-host/platform"
-	"github.com/EasyTier/easytier-go-host/platform/netstd"
-	hostproto "github.com/EasyTier/easytier-go-host/proto"
-	"github.com/EasyTier/easytier-go-host/proto/api/manage"
+	"github.com/EasyTier/easytier-go/internal/artifact"
+	"github.com/EasyTier/easytier-go/internal/contextutil"
+	"github.com/EasyTier/easytier-go/internal/coreabi"
+	"github.com/EasyTier/easytier-go/internal/engine"
+	"github.com/EasyTier/easytier-go/platform"
+	"github.com/EasyTier/easytier-go/platform/netstd"
+	hostproto "github.com/EasyTier/easytier-go/proto"
+	"github.com/EasyTier/easytier-go/proto/api/manage"
 )
 
 type State int32
@@ -125,7 +126,7 @@ func (host *Host) CreateInstance(
 		source:   manage.ConfigSource_ConfigSourceUser,
 		name:     config.document.networkName,
 	}); err != nil {
-		_ = runtime.Close(context.WithoutCancel(ctx))
+		_ = runtime.Close(contextutil.WithoutCancel(ctx))
 		return nil, err
 	}
 	return instance, nil

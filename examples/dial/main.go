@@ -16,7 +16,8 @@ import (
 	"syscall"
 	"time"
 
-	corehost "github.com/EasyTier/easytier-go-host"
+	corehost "github.com/EasyTier/easytier-go"
+	"github.com/EasyTier/easytier-go/internal/contextutil"
 )
 
 const maxUDPPayload = 65507
@@ -174,7 +175,7 @@ func run(
 		return err
 	}
 	defer connection.Close()
-	stopClose := context.AfterFunc(ctx, func() {
+	stopClose := contextutil.AfterFunc(ctx, func() {
 		_ = connection.Close()
 	})
 	defer stopClose()

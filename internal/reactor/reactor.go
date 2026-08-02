@@ -7,7 +7,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/EasyTier/easytier-go-host/platform"
+	"github.com/EasyTier/easytier-go/internal/contextutil"
+	"github.com/EasyTier/easytier-go/platform"
 )
 
 var (
@@ -75,7 +76,7 @@ func New(parent context.Context, options Options) *Reactor {
 	if parent == nil {
 		parent = context.Background()
 	}
-	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
+	ctx, cancel := context.WithCancel(contextutil.WithoutCancel(parent))
 	reactor := &Reactor{
 		ctx:               ctx,
 		cancel:            cancel,

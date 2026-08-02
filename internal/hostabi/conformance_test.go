@@ -12,8 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EasyTier/easytier-go-host/internal/reactor"
-	"github.com/EasyTier/easytier-go-host/platform"
+	"github.com/EasyTier/easytier-go/internal/contextutil"
+	"github.com/EasyTier/easytier-go/internal/reactor"
+	"github.com/EasyTier/easytier-go/platform"
 	"github.com/metacubex/wazero"
 	"github.com/metacubex/wazero/api"
 	"github.com/metacubex/wazero/imports/wasi_snapshot_preview1"
@@ -424,7 +425,7 @@ func instantiateProbe(
 		wazero.NewRuntimeConfig().WithCloseOnContextDone(true),
 	)
 	t.Cleanup(func() {
-		if err := runtime.Close(context.WithoutCancel(ctx)); err != nil {
+		if err := runtime.Close(contextutil.WithoutCancel(ctx)); err != nil {
 			t.Errorf("close probe runtime: %v", err)
 		}
 	})
@@ -444,7 +445,7 @@ func instantiateProbe(
 	if err != nil {
 		t.Fatalf("compile probe WASM: %v", err)
 	}
-	t.Cleanup(func() { _ = compiled.Close(context.WithoutCancel(ctx)) })
+	t.Cleanup(func() { _ = compiled.Close(contextutil.WithoutCancel(ctx)) })
 	module, err := runtime.InstantiateModule(
 		ctx,
 		compiled,

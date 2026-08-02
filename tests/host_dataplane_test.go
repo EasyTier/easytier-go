@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	corehost "github.com/EasyTier/easytier-go-host"
-	"github.com/EasyTier/easytier-go-host/platform"
+	corehost "github.com/EasyTier/easytier-go"
+	"github.com/EasyTier/easytier-go/platform"
 )
 
 func TestPublicDataPlaneTCPAndUDP(t *testing.T) {

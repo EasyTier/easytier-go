@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/EasyTier/easytier-go-host/internal/coreabi"
+	"github.com/EasyTier/easytier-go/internal/coreabi"
 )
 
 const maxDataPlaneTransfer = 1024 * 1024

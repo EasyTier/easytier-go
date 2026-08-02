@@ -11,11 +11,12 @@ import (
 	"sync"
 	"time"
 
-	apiconfig "github.com/EasyTier/easytier-go-host/proto/api/config"
-	apiinstance "github.com/EasyTier/easytier-go-host/proto/api/instance"
-	"github.com/EasyTier/easytier-go-host/proto/api/manage"
-	"github.com/EasyTier/easytier-go-host/proto/common"
-	errorpb "github.com/EasyTier/easytier-go-host/proto/error"
+	"github.com/EasyTier/easytier-go/internal/contextutil"
+	apiconfig "github.com/EasyTier/easytier-go/proto/api/config"
+	apiinstance "github.com/EasyTier/easytier-go/proto/api/instance"
+	"github.com/EasyTier/easytier-go/proto/api/manage"
+	"github.com/EasyTier/easytier-go/proto/common"
+	errorpb "github.com/EasyTier/easytier-go/proto/error"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -81,7 +82,7 @@ func (manager *instanceManager) remove(instance *Instance) {
 
 func (manager *instanceManager) clear() {
 	manager.mu.Lock()
-	clear(manager.instances)
+	manager.instances = make(map[string]*managedInstance)
 	manager.mu.Unlock()
 }
 
@@ -281,7 +282,7 @@ func (manager *instanceManager) createWebInstance(
 		manager: manager,
 	}
 	if err := runtime.Start(ctx); err != nil {
-		_ = runtime.Close(context.WithoutCancel(ctx))
+		_ = runtime.Close(contextutil.WithoutCancel(ctx))
 		return nil, err
 	}
 	if source == manage.ConfigSource_ConfigSourceUnspecified {
@@ -297,7 +298,7 @@ func (manager *instanceManager) createWebInstance(
 		name:       config.GetNetworkName(),
 	}
 	if err := manager.register(entry); err != nil {
-		_ = runtime.Close(context.WithoutCancel(ctx))
+		_ = runtime.Close(contextutil.WithoutCancel(ctx))
 		return nil, err
 	}
 	return entry, nil
@@ -338,7 +339,10 @@ func (manager *instanceManager) patchConfig(
 		},
 		response,
 	)
-	snapshotContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	snapshotContext, cancel := context.WithTimeout(
+		contextutil.WithoutCancel(ctx),
+		10*time.Second,
+	)
 	defer cancel()
 	effective := new(apiconfig.GetConfigResponse)
 	if err := entry.instance.callRPCRequest(
@@ -650,8 +654,12 @@ func encodeManagementResponse(
 	responseErr error,
 	started time.Time,
 ) []byte {
+	runtimeUs := uint64(time.Since(started).Microseconds())
+	if runtimeUs == 0 {
+		runtimeUs = 1
+	}
 	envelope := &common.RpcResponse{
-		RuntimeUs: max(uint64(time.Since(started).Microseconds()), 1),
+		RuntimeUs: runtimeUs,
 	}
 	if responseErr == nil {
 		envelope.Response, responseErr = proto.Marshal(response)

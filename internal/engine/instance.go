@@ -10,8 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/EasyTier/easytier-go-host/internal/coreabi"
-	"github.com/EasyTier/easytier-go-host/internal/reactor"
+	"github.com/EasyTier/easytier-go/internal/contextutil"
+	"github.com/EasyTier/easytier-go/internal/coreabi"
+	"github.com/EasyTier/easytier-go/internal/reactor"
 )
 
 type commandKind uint8
@@ -387,7 +388,7 @@ drain:
 
 	successful := false
 	var sendErrors [maximumPacketIngressBatch]error
-	for index := range count {
+	for index := 0; index < count; index++ {
 		err := instance.handleCommand(batch[index])
 		sendErrors[index] = err
 		successful = successful || err == nil
@@ -396,7 +397,7 @@ drain:
 	if successful {
 		deadline, driveErr = instance.drive(false)
 	}
-	for index := range count {
+	for index := 0; index < count; index++ {
 		if sendErrors[index] != nil {
 			batch[index].response <- sendErrors[index]
 		} else {
@@ -473,7 +474,7 @@ func (instance *Instance) drive(notify bool) (int64, error) {
 
 func (instance *Instance) shutdown() error {
 	cleanupContext, cancel := context.WithTimeout(
-		context.WithoutCancel(instance.ctx),
+		contextutil.WithoutCancel(instance.ctx),
 		5*time.Second,
 	)
 	defer cancel()

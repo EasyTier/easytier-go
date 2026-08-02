@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"math"
 	"net/netip"
+
+	"github.com/EasyTier/easytier-go/internal/contextutil"
 )
 
 const (
@@ -706,7 +708,7 @@ func (core *Core) writeInput(
 		return 0, err
 	}
 	if !core.module.Memory().Write(pointer, data) {
-		_ = core.free(context.WithoutCancel(ctx), pointer)
+		_ = core.free(contextutil.WithoutCancel(ctx), pointer)
 		return 0, fmt.Errorf("write data plane input to guest memory")
 	}
 	return pointer, nil

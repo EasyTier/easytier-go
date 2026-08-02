@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/EasyTier/easytier-go-host/platform"
+	"github.com/EasyTier/easytier-go/platform"
 )
 
 func TestOperationIDsAreUniqueAcrossOperationKinds(t *testing.T) {
@@ -187,7 +187,7 @@ func TestConcurrentCloseWaitsForOneCleanup(t *testing.T) {
 	runtime := New(context.Background(), Options{})
 	var workers sync.WaitGroup
 	workers.Add(2)
-	for range 2 {
+	for worker := 0; worker < 2; worker++ {
 		go func() {
 			defer workers.Done()
 			runtime.Close()

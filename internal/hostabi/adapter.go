@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/EasyTier/easytier-go-host/internal/reactor"
+	"github.com/EasyTier/easytier-go/internal/reactor"
 	"github.com/metacubex/wazero"
 )
 

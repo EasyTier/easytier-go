@@ -8,11 +8,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/EasyTier/easytier-go-host/internal/artifact"
-	"github.com/EasyTier/easytier-go-host/internal/coreabi"
-	"github.com/EasyTier/easytier-go-host/internal/hostabi"
-	"github.com/EasyTier/easytier-go-host/internal/reactor"
-	"github.com/EasyTier/easytier-go-host/platform"
+	"github.com/EasyTier/easytier-go/internal/artifact"
+	"github.com/EasyTier/easytier-go/internal/contextutil"
+	"github.com/EasyTier/easytier-go/internal/coreabi"
+	"github.com/EasyTier/easytier-go/internal/hostabi"
+	"github.com/EasyTier/easytier-go/internal/reactor"
+	"github.com/EasyTier/easytier-go/platform"
 	"github.com/metacubex/wazero"
 	"github.com/metacubex/wazero/api"
 	"github.com/metacubex/wazero/imports/wasi_snapshot_preview1"
@@ -63,7 +64,7 @@ func NewHost(ctx context.Context, options Options) (_ *Host, err error) {
 		return nil, fmt.Errorf("packet queue capacity must be positive")
 	}
 
-	lifetime, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	lifetime, cancel := context.WithCancel(contextutil.WithoutCancel(ctx))
 	runtime := wazero.NewRuntime(lifetime)
 	var module api.Module
 	var hostReactor *reactor.Reactor
@@ -73,12 +74,12 @@ func NewHost(ctx context.Context, options Options) (_ *Host, err error) {
 		}
 		cancel()
 		if module != nil {
-			_ = module.Close(context.WithoutCancel(ctx))
+			_ = module.Close(contextutil.WithoutCancel(ctx))
 		}
 		if hostReactor != nil {
 			hostReactor.Close()
 		}
-		_ = runtime.Close(context.WithoutCancel(ctx))
+		_ = runtime.Close(contextutil.WithoutCancel(ctx))
 	}()
 
 	if _, err = wasi_snapshot_preview1.Instantiate(ctx, runtime); err != nil {
@@ -99,7 +100,7 @@ func NewHost(ctx context.Context, options Options) (_ *Host, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("compile embedded EasyTier core: %w", err)
 	}
-	defer compiled.Close(context.WithoutCancel(ctx))
+	defer compiled.Close(contextutil.WithoutCancel(ctx))
 	module, err = runtime.InstantiateModule(ctx, compiled, newModuleConfig())
 	if err != nil {
 		return nil, fmt.Errorf("instantiate embedded EasyTier core: %w", err)

@@ -1,6 +1,6 @@
 package host
 
-import internalhost "github.com/EasyTier/easytier-go-host/internal/host"
+import internalhost "github.com/EasyTier/easytier-go/internal/host"
 
 type WebClientOptions = internalhost.WebClientOptions
 

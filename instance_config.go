@@ -1,6 +1,6 @@
 package host
 
-import internalhost "github.com/EasyTier/easytier-go-host/internal/host"
+import internalhost "github.com/EasyTier/easytier-go/internal/host"
 
 // P2PPolicy controls when an instance attempts peer-to-peer connections.
 type P2PPolicy = internalhost.P2PPolicy

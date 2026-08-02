@@ -8,7 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/EasyTier/easytier-go-host/internal/coreabi"
+	"github.com/EasyTier/easytier-go/internal/contextutil"
+	"github.com/EasyTier/easytier-go/internal/coreabi"
 )
 
 type WebClientOptions struct {
@@ -161,7 +162,7 @@ func (client *WebClient) drive(notify bool) (int64, error) {
 
 func (client *WebClient) shutdown() error {
 	cleanupContext, cancel := context.WithTimeout(
-		context.WithoutCancel(client.ctx),
+		contextutil.WithoutCancel(client.ctx),
 		5*time.Second,
 	)
 	defer cancel()

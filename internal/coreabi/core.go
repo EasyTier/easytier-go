@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/EasyTier/easytier-go/internal/contextutil"
 	"github.com/metacubex/wazero/api"
 )
 
@@ -407,7 +408,7 @@ func (core *Core) cleanupBuffer(
 	pointer uint32,
 	operationErr *error,
 ) {
-	cleanupErr := core.free(context.WithoutCancel(ctx), pointer)
+	cleanupErr := core.free(contextutil.WithoutCancel(ctx), pointer)
 	if *operationErr == nil && cleanupErr != nil {
 		*operationErr = cleanupErr
 	}

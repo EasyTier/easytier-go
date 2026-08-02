@@ -20,7 +20,8 @@ import (
 	"sync/atomic"
 	"syscall"
 
-	corehost "github.com/EasyTier/easytier-go-host"
+	corehost "github.com/EasyTier/easytier-go"
+	"github.com/EasyTier/easytier-go/internal/contextutil"
 )
 
 type options struct {
@@ -297,7 +298,7 @@ func (forwards *portForwardSet) forwardTCP(
 		return
 	}
 	defer overlay.Close()
-	stopClose := context.AfterFunc(forwards.ctx, func() {
+	stopClose := contextutil.AfterFunc(forwards.ctx, func() {
 		_ = local.Close()
 		_ = overlay.Close()
 	})

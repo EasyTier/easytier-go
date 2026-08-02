@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	corehost "github.com/EasyTier/easytier-go-host"
+	corehost "github.com/EasyTier/easytier-go"
 )
 
 func TestWebClientEndToEnd(t *testing.T) {

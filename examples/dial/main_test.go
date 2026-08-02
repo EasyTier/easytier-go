@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	corehost "github.com/EasyTier/easytier-go-host"
-	"github.com/EasyTier/easytier-go-host/proto/common"
+	corehost "github.com/EasyTier/easytier-go"
+	"github.com/EasyTier/easytier-go/proto/common"
 )
 
 func TestParseOptions(t *testing.T) {
